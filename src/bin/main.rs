@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
 use vulkano::device::{Device, DeviceExtensions, Features, Queue, QueuesIter};
 use vulkano::image::{ImageUsage, SwapchainImage};
 use vulkano::instance::{Instance, InstanceExtensions, PhysicalDevice};
@@ -94,6 +95,28 @@ fn main() {
 
 	let (mut swapchain, images) =
 		create_swapchain(physical, &device, &surface, &queue);
+
+	let vertex_buffer = {
+		// TODO move this Vertex struct to somewhere more sensible
+		//      ideally move all this buffer stuff somewhere more sensible, really.
+		#[derive(Default, Debug, Clone)]
+		struct Vertex {
+			position: [f32; 2],
+		}
+		vulkano::impl_vertex!(Vertex, position);
+
+		CpuAccessibleBuffer::from_iter(
+			device.clone(),
+			// TODO pick actual BufferUsage
+			BufferUsage::all(),
+			false,
+			[
+				Vertex {position: [-0.5, -0.25]},
+				Vertex {position: [0.0, 0.5]},
+				Vertex {position: [0.25, -0.1]},
+			].iter().cloned()
+		).unwrap()
+	};
 
 	events_loop.run(|event, _, control_flow| {
 		// TODO this might break things once we're actually rendering to the surface
