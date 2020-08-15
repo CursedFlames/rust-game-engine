@@ -1,12 +1,15 @@
 use std::sync::Arc;
 
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
-use vulkano::device::{Device, DeviceExtensions, Features, Queue, QueuesIter};
-use vulkano::framebuffer::{RenderPass, Subpass};
+use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
+use vulkano::device::{Device, DeviceExtensions, Features, Queue};
+use vulkano::framebuffer::{Framebuffer, FramebufferAbstract, RenderPass, RenderPassAbstract, Subpass};
 use vulkano::image::{ImageUsage, SwapchainImage};
 use vulkano::instance::{Instance, PhysicalDevice};
 use vulkano::pipeline::GraphicsPipeline;
-use vulkano::swapchain::{ColorSpace, FullscreenExclusive, PresentMode, Surface, SurfaceTransform, Swapchain};
+use vulkano::pipeline::viewport::Viewport;
+use vulkano::swapchain::{self, AcquireError, ColorSpace, FullscreenExclusive, PresentMode, Surface, SurfaceTransform, Swapchain};
+use vulkano::sync::{self, GpuFuture};
 use vulkano_win::VkSurfaceBuild;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
@@ -52,6 +55,34 @@ fn create_swapchain(physical: PhysicalDevice, device: &Arc<Device>, surface: &Ar
 		true,
 		ColorSpace::SrgbNonLinear
 	).unwrap()
+}
+
+fn window_size_dependent_setup(
+	images: &[Arc<SwapchainImage<Window>>],
+	render_pass: Arc<dyn RenderPassAbstract + Send + Sync>,
+	dynamic_state: &mut DynamicState
+) -> Vec<Arc<dyn FramebufferAbstract + Send + Sync>> {
+	let dimensions = images[0].dimensions();
+
+	let viewport = Viewport {
+		origin: [0.0, 0.0],
+		dimensions: [dimensions[0] as f32, dimensions[1] as f32],
+		depth_range: 0.0..1.0,
+	};
+	dynamic_state.viewports = Some(vec![viewport]);
+
+	images
+		.iter()
+		.map(|image| {
+			Arc::new(
+				Framebuffer::start(render_pass.clone())
+					.add(image.clone())
+					.unwrap()
+					.build()
+					.unwrap(),
+			) as Arc<dyn FramebufferAbstract + Send + Sync>
+		})
+		.collect::<Vec<_>>()
 }
 
 fn main() {
@@ -183,7 +214,22 @@ void main() {
 			.unwrap()
 	);
 
-	events_loop.run(|event, _, control_flow| {
+	// Need this for dynamically updating the viewport when resizing the window. I think.
+	let mut dynamic_state = DynamicState {
+		line_width: None,
+		viewports: None,
+		scissors: None,
+		compare_mask: None,
+		write_mask: None,
+		reference: None,
+	};
+
+	let mut framebuffers = window_size_dependent_setup(&images, render_pass.clone(), &mut dynamic_state);
+
+	// I'm not clear on what exactly this does, but it sounds important for freeing memory that's no longer needed
+	let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
+
+	events_loop.run(move |event, _, control_flow| {
 		// TODO this might break things once we're actually rendering to the surface
 		//      for now it just serves to prevent max CPU usage on one thread
 		*control_flow = ControlFlow::Wait;
@@ -195,7 +241,57 @@ void main() {
 			},
 			Event::WindowEvent { event: WindowEvent::Resized(size), ..} => {
 				println!("resized {:?}", size);
-			}
+				// TODO recreate swapchain = true
+			},
+			Event::RedrawEventsCleared => {
+				// Free resources that are no longer needed? :shrug:
+				previous_frame_end.as_mut().unwrap().cleanup_finished();
+
+				let (image_num, suboptimal, acquire_future) =
+					match swapchain::acquire_next_image(swapchain.clone(), None) {
+						Ok(r) => r,
+						Err(AcquireError::OutOfDate) => {
+							// TODO
+							panic!("out of date");
+							return;
+						}
+						Err(e) => panic!("Failed to acquire next image: {:?}", e)
+					};
+
+				// TODO suboptimal case handling
+
+				let clear_values = vec![[0.0, 0.0, 0.0, 1.0].into()];
+
+				let mut builder = AutoCommandBufferBuilder::primary_one_time_submit(
+					device.clone(),
+					queue.family(),
+				).unwrap();
+
+				builder
+					.begin_render_pass(framebuffers[image_num].clone(), false, clear_values)
+					.unwrap()
+					.draw(
+						pipeline.clone(),
+						&dynamic_state,
+						vertex_buffer.clone(),
+						(),
+						(),
+					)
+					.unwrap()
+					.end_render_pass()
+					.unwrap();
+
+				let command_buffer = builder.build().unwrap();
+
+				let future = previous_frame_end
+					.take()
+					.unwrap()
+					.join(acquire_future)
+					.then_execute(queue.clone(), command_buffer)
+					.unwrap()
+					.then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
+					.then_signal_fence_and_flush();
+			},
 			_ => ()
 		}
 	});
