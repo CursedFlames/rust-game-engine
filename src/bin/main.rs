@@ -8,8 +8,8 @@ use vulkano::image::{ImageUsage, SwapchainImage};
 use vulkano::instance::{Instance, PhysicalDevice};
 use vulkano::pipeline::GraphicsPipeline;
 use vulkano::pipeline::viewport::Viewport;
-use vulkano::swapchain::{self, AcquireError, ColorSpace, FullscreenExclusive, PresentMode, Surface, SurfaceTransform, Swapchain};
-use vulkano::sync::{self, GpuFuture};
+use vulkano::swapchain::{self, AcquireError, ColorSpace, FullscreenExclusive, PresentMode, Surface, SurfaceTransform, Swapchain, SwapchainCreationError};
+use vulkano::sync::{self, FlushError, GpuFuture};
 use vulkano_win::VkSurfaceBuild;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
@@ -226,6 +226,7 @@ void main() {
 
 	let mut framebuffers = window_size_dependent_setup(&images, render_pass.clone(), &mut dynamic_state);
 
+	let mut recreate_swapchain = false;
 	// I'm not clear on what exactly this does, but it sounds important for freeing memory that's no longer needed
 	let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
@@ -247,18 +248,38 @@ void main() {
 				// Free resources that are no longer needed? :shrug:
 				previous_frame_end.as_mut().unwrap().cleanup_finished();
 
+				if recreate_swapchain {
+					let dimensions: [u32; 2] = surface.window().inner_size().into();
+					let (new_swapchain, new_images) =
+						match swapchain.recreate_with_dimensions(dimensions) {
+							Ok(r) => r,
+							// This tends to happen while the user is resizing the window, apparently
+							Err(SwapchainCreationError::UnsupportedDimensions) => return,
+							Err(e) => panic!("Failed to recreate swapchain: {:?}", e)
+						};
+
+					swapchain = new_swapchain;
+					framebuffers = window_size_dependent_setup(
+						&new_images,
+						render_pass.clone(),
+						&mut dynamic_state,
+					);
+					recreate_swapchain = false;
+				}
+
 				let (image_num, suboptimal, acquire_future) =
 					match swapchain::acquire_next_image(swapchain.clone(), None) {
 						Ok(r) => r,
 						Err(AcquireError::OutOfDate) => {
-							// TODO
-							panic!("out of date");
+							recreate_swapchain = true;
 							return;
 						}
 						Err(e) => panic!("Failed to acquire next image: {:?}", e)
 					};
 
-				// TODO suboptimal case handling
+				if suboptimal {
+					recreate_swapchain = true;
+				}
 
 				let clear_values = vec![[0.0, 0.0, 0.0, 1.0].into()];
 
@@ -291,6 +312,20 @@ void main() {
 					.unwrap()
 					.then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
 					.then_signal_fence_and_flush();
+
+				match future {
+					Ok(future) => {
+						previous_frame_end = Some(future.boxed());
+					},
+					Err(FlushError::OutOfDate) => {
+						recreate_swapchain = true;
+						previous_frame_end = Some(sync::now(device.clone()).boxed());
+					},
+					Err(e) => {
+						println!("Failed to flush future: {:?}", e);
+						previous_frame_end = Some(sync::now(device.clone()).boxed());
+					}
+				}
 			},
 			_ => ()
 		}
