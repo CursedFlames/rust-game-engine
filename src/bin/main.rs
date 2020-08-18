@@ -1,10 +1,12 @@
 use std::sync::Arc;
 use std::thread;
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 
-use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
+use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
+use vulkano::descriptor::descriptor_set::{PersistentDescriptorSet, DescriptorSetDesc};
 use vulkano::device::{Device, DeviceExtensions, Features, Queue};
+use vulkano::format::Format;
 use vulkano::framebuffer::{Framebuffer, FramebufferAbstract, RenderPass, RenderPassAbstract, Subpass};
 use vulkano::image::{ImageUsage, SwapchainImage};
 use vulkano::instance::{Instance, PhysicalDevice};
@@ -141,10 +143,9 @@ fn main() {
 	struct Vertex {
 		position: [f32; 2],
 	}
+	vulkano::impl_vertex!(Vertex, position);
 
-	let vertex_buffer = {
-		vulkano::impl_vertex!(Vertex, position);
-
+	let vertex_buffer_triangle = {
 		CpuAccessibleBuffer::from_iter(
 			device.clone(),
 			// TODO pick actual BufferUsage
@@ -154,6 +155,24 @@ fn main() {
 				Vertex {position: [-0.5, -0.25]},
 				Vertex {position: [0.0, 0.5]},
 				Vertex {position: [0.25, -0.1]},
+			].iter().cloned()
+		).unwrap()
+	};
+
+	let vertex_buffer_square = {
+		CpuAccessibleBuffer::from_iter(
+			device.clone(),
+			// TODO pick actual BufferUsage
+			BufferUsage::all(),
+			false,
+			[
+				// TODO do quads properly lmao
+				Vertex {position: [-1.0, -1.0]},
+				Vertex {position: [-1.0, 1.0]},
+				Vertex {position: [1.0, -1.0]},
+				Vertex {position: [1.0, 1.0]},
+				Vertex {position: [-1.0, 1.0]},
+				Vertex {position: [1.0, -1.0]},
 			].iter().cloned()
 		).unwrap()
 	};
@@ -173,7 +192,7 @@ void main() {
 		}
 	}
 
-	mod fs {
+	/*mod fs_triangle {
 		vulkano_shaders::shader! {
 			ty: "fragment",
 			src: "\
@@ -183,12 +202,49 @@ void main() {
 	f_color = vec4(0.1, 0.25, 1.0, 1.0);
 }"
 		}
+	}*/
+
+	// TODO input texture how
+	mod fs_output {
+		vulkano_shaders::shader! {
+			ty: "fragment",
+			src: "\
+#version 450
+layout(location = 0) out vec4 f_color;
+layout(binding = 0) uniform unf_data {
+	float time;
+};
+void main() {
+	f_color = vec4(sin(time/4.0), 0.25, 1.0, 1.0);
+}"
+		}
 	}
 
-	let vs = vs::Shader::load(device.clone()).unwrap();
-	let fs = fs::Shader::load(device.clone()).unwrap();
+	let fragment_uniform_buffer = CpuBufferPool::<fs_output::ty::unf_data>::new(device.clone(), BufferUsage::all());
 
-	let render_pass: Arc<RenderPass<_>> = Arc::new(
+	let vs = vs::Shader::load(device.clone()).unwrap();
+	// let fs_triangle = fs_triangle::Shader::load(device.clone()).unwrap();
+	let fs_output = fs_output::Shader::load(device.clone()).unwrap();
+
+	// let render_pass_main: Arc<RenderPass<_>> = Arc::new(
+	// 	vulkano::single_pass_renderpass!(
+	// 		device.clone(),
+	// 		attachments: {
+	// 			color: {
+	// 				load: Clear,
+	// 				store: Store,
+	// 				format: Format::R16G16B16A16Sfloat,
+	// 				samples: 1,
+	// 			}
+	// 		},
+	// 		pass: {
+	// 			color: [color],
+	// 			depth_stencil: {}
+	// 		}
+	// 	).unwrap()
+	// );
+
+	let render_pass_output: Arc<RenderPass<_>> = Arc::new(
 		vulkano::single_pass_renderpass!(
 			device.clone(),
 			attachments: {
@@ -214,8 +270,8 @@ void main() {
 			.vertex_shader(vs.main_entry_point(), ())
 			.triangle_list()
 			.viewports_dynamic_scissors_irrelevant(1)
-			.fragment_shader(fs.main_entry_point(), ())
-			.render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
+			.fragment_shader(fs_output.main_entry_point(), ())
+			.render_pass(Subpass::from(render_pass_output.clone(), 0).unwrap())
 			.build(device.clone())
 			.unwrap()
 	);
@@ -230,7 +286,7 @@ void main() {
 		reference: None,
 	};
 
-	let mut framebuffers = window_size_dependent_setup(&images, render_pass.clone(), &mut dynamic_state);
+	let mut framebuffers_output = window_size_dependent_setup(&images, render_pass_output.clone(), &mut dynamic_state);
 
 	let mut recreate_swapchain = false;
 	// I'm not clear on what exactly this does, but it sounds important for freeing memory that's no longer needed
@@ -280,9 +336,9 @@ void main() {
 						};
 
 					swapchain = new_swapchain;
-					framebuffers = window_size_dependent_setup(
+					framebuffers_output = window_size_dependent_setup(
 						&new_images,
-						render_pass.clone(),
+						render_pass_output.clone(),
 						&mut dynamic_state,
 					);
 					recreate_swapchain = false;
@@ -302,6 +358,25 @@ void main() {
 					recreate_swapchain = true;
 				}
 
+				let fragment_uniform_subbuf = {
+					let elapsed = start_instant.elapsed().as_secs_f32();
+
+					let fragment_data = fs_output::ty::unf_data {
+						time: elapsed
+					};
+					fragment_uniform_buffer.next(fragment_data).unwrap()
+				};
+
+				let layout = pipeline.layout().descriptor_set_layout(0).expect("Failed to get set layout");
+
+				let uniform_set = Arc::new(
+					PersistentDescriptorSet::start(layout.clone())
+						.add_buffer(fragment_uniform_subbuf)
+						.expect("Failed to add fragment uniform buffer")
+						.build()
+						.expect("Failed to build uniform object"),
+				);
+
 				let clear_values = vec![[0.0, 0.0, 0.0, 1.0].into()];
 
 				let mut builder = AutoCommandBufferBuilder::primary_one_time_submit(
@@ -310,13 +385,13 @@ void main() {
 				).unwrap();
 
 				builder
-					.begin_render_pass(framebuffers[image_num].clone(), false, clear_values)
+					.begin_render_pass(framebuffers_output[image_num].clone(), false, clear_values)
 					.unwrap()
 					.draw(
 						pipeline.clone(),
 						&dynamic_state,
-						vertex_buffer.clone(),
-						(),
+						vertex_buffer_triangle.clone(),
+						uniform_set,
 						(),
 					)
 					.unwrap()
