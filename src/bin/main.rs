@@ -1,4 +1,6 @@
 use std::sync::Arc;
+use std::thread;
+use std::time::{Instant, Duration};
 
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
@@ -55,6 +57,10 @@ fn create_swapchain(physical: PhysicalDevice, device: &Arc<Device>, surface: &Ar
 		true,
 		ColorSpace::SrgbNonLinear
 	).unwrap()
+}
+
+struct GameFramebuffers {
+	output_buffers: Vec<Arc<dyn FramebufferAbstract + Send + Sync>>,
 }
 
 fn window_size_dependent_setup(
@@ -230,10 +236,15 @@ void main() {
 	// I'm not clear on what exactly this does, but it sounds important for freeing memory that's no longer needed
 	let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
+	let start_instant = Instant::now();
+	let mut frame_count = 0;
+	let mut last_print_time = 0.0;
+	let mut frames_since_last_print = 0;
+
 	events_loop.run(move |event, _, control_flow| {
 		// TODO this might break things once we're actually rendering to the surface
 		//      for now it just serves to prevent max CPU usage on one thread
-		*control_flow = ControlFlow::Wait;
+		// *control_flow = ControlFlow::Wait;
 		// Commented out to prevent console spam
 		// println!("event {:?}", event);
 		match event {
@@ -244,7 +255,17 @@ void main() {
 				println!("resized {:?}", size);
 				// TODO recreate swapchain = true
 			},
-			Event::RedrawEventsCleared => {
+			Event::RedrawEventsCleared => {},
+			Event::MainEventsCleared => {
+				let time_elapsed = start_instant.elapsed().as_secs_f64();
+				if time_elapsed > last_print_time + 1.0 {
+					println!("{} FPS", frames_since_last_print);
+					last_print_time = time_elapsed;
+					frames_since_last_print = 0;
+				}
+				frame_count += 1;
+				frames_since_last_print += 1;
+
 				// Free resources that are no longer needed? :shrug:
 				previous_frame_end.as_mut().unwrap().cleanup_finished();
 
@@ -326,6 +347,9 @@ void main() {
 						previous_frame_end = Some(sync::now(device.clone()).boxed());
 					}
 				}
+
+				// Janky solution to prevent max CPU usage for now
+				// thread::sleep(Duration::new(0, 10000000));
 			},
 			_ => ()
 		}
