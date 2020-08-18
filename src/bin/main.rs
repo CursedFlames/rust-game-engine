@@ -4,14 +4,15 @@ use std::time::{Duration, Instant};
 
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
-use vulkano::descriptor::descriptor_set::{PersistentDescriptorSet, DescriptorSetDesc};
+use vulkano::descriptor::descriptor_set::{DescriptorSetDesc, PersistentDescriptorSet};
 use vulkano::device::{Device, DeviceExtensions, Features, Queue};
 use vulkano::format::Format;
 use vulkano::framebuffer::{Framebuffer, FramebufferAbstract, RenderPass, RenderPassAbstract, Subpass};
-use vulkano::image::{ImageUsage, SwapchainImage};
+use vulkano::image::{AttachmentImage, ImageUsage, SwapchainImage, StorageImage};
 use vulkano::instance::{Instance, PhysicalDevice};
 use vulkano::pipeline::GraphicsPipeline;
 use vulkano::pipeline::viewport::Viewport;
+use vulkano::sampler::{Sampler, Filter, MipmapMode, SamplerAddressMode};
 use vulkano::swapchain::{self, AcquireError, ColorSpace, FullscreenExclusive, PresentMode, Surface, SurfaceTransform, Swapchain, SwapchainCreationError};
 use vulkano::sync::{self, FlushError, GpuFuture};
 use vulkano_win::VkSurfaceBuild;
@@ -20,6 +21,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Window, WindowBuilder};
 
 use vulkan_test::vulkutil;
+use vulkano::image::Dimensions::Dim2d;
 
 fn create_window(instance: &Arc<Instance>) -> (EventLoop<()>, Arc<Surface<Window>>) {
 	let events_loop = EventLoop::new();
@@ -59,10 +61,6 @@ fn create_swapchain(physical: PhysicalDevice, device: &Arc<Device>, surface: &Ar
 		true,
 		ColorSpace::SrgbNonLinear
 	).unwrap()
-}
-
-struct GameFramebuffers {
-	output_buffers: Vec<Arc<dyn FramebufferAbstract + Send + Sync>>,
 }
 
 fn window_size_dependent_setup(
@@ -137,6 +135,29 @@ fn main() {
 	let (mut swapchain, images) =
 		create_swapchain(physical, &device, &surface, &queue);
 
+	let mut intermediate_image = /*AttachmentImage*/StorageImage::new(
+		device.clone(),
+		Dim2d {width: 320, height: 180} ,
+		Format::R16G16B16A16Sfloat,
+		Some(queue.family())
+	).expect("Failed to create intermediate image");
+
+	// intermediate_image.
+
+	let sampler_simple_nearest = Sampler::new(
+		device.clone(),
+		Filter::Nearest,
+		Filter::Nearest,
+		MipmapMode::Nearest,
+		SamplerAddressMode::ClampToEdge,
+		SamplerAddressMode::ClampToEdge,
+		SamplerAddressMode::ClampToEdge,
+		0.0,
+		1.0,
+		0.0,
+		1.0
+	).expect("Failed to create sampler");
+
 	// TODO move this Vertex struct to somewhere more sensible
 	//      ideally move all this buffer stuff somewhere more sensible, really.
 	#[derive(Default, Debug, Clone)]
@@ -186,36 +207,47 @@ fn main() {
 			src: "\
 #version 450
 layout(location = 0) in vec2 position;
+
+layout(location = 0) out vec2 fragTexCoord;
+
 void main() {
 	gl_Position = vec4(position, 0.0, 1.0);
+	fragTexCoord = position;
 }"
 		}
 	}
 
-	/*mod fs_triangle {
+	mod fs_triangle {
 		vulkano_shaders::shader! {
 			ty: "fragment",
 			src: "\
 #version 450
+layout(location = 0) in vec2 fragTexCoord;
+
 layout(location = 0) out vec4 f_color;
+
 void main() {
 	f_color = vec4(0.1, 0.25, 1.0, 1.0);
 }"
 		}
-	}*/
+	}
 
-	// TODO input texture how
 	mod fs_output {
 		vulkano_shaders::shader! {
 			ty: "fragment",
 			src: "\
 #version 450
+layout(location = 0) in vec2 fragTexCoord;
+
 layout(location = 0) out vec4 f_color;
+
 layout(binding = 0) uniform unf_data {
 	float time;
 };
+layout(binding = 1) uniform sampler2D texSampler;
 void main() {
-	f_color = vec4(sin(time/4.0), 0.25, 1.0, 1.0);
+	// f_color = vec4(sin(time/4.0), 0.25, 1.0, 1.0);
+	f_color = texture(texSampler, fragTexCoord);
 }"
 		}
 	}
@@ -223,26 +255,26 @@ void main() {
 	let fragment_uniform_buffer = CpuBufferPool::<fs_output::ty::unf_data>::new(device.clone(), BufferUsage::all());
 
 	let vs = vs::Shader::load(device.clone()).unwrap();
-	// let fs_triangle = fs_triangle::Shader::load(device.clone()).unwrap();
+	let fs_triangle = fs_triangle::Shader::load(device.clone()).unwrap();
 	let fs_output = fs_output::Shader::load(device.clone()).unwrap();
 
-	// let render_pass_main: Arc<RenderPass<_>> = Arc::new(
-	// 	vulkano::single_pass_renderpass!(
-	// 		device.clone(),
-	// 		attachments: {
-	// 			color: {
-	// 				load: Clear,
-	// 				store: Store,
-	// 				format: Format::R16G16B16A16Sfloat,
-	// 				samples: 1,
-	// 			}
-	// 		},
-	// 		pass: {
-	// 			color: [color],
-	// 			depth_stencil: {}
-	// 		}
-	// 	).unwrap()
-	// );
+	let render_pass_main: Arc<RenderPass<_>> = Arc::new(
+		vulkano::single_pass_renderpass!(
+			device.clone(),
+			attachments: {
+				color: {
+					load: Clear,
+					store: Store,
+					format: Format::R16G16B16A16Sfloat,
+					samples: 1,
+				}
+			},
+			pass: {
+				color: [color],
+				depth_stencil: {}
+			}
+		).unwrap()
+	);
 
 	let render_pass_output: Arc<RenderPass<_>> = Arc::new(
 		vulkano::single_pass_renderpass!(
@@ -264,7 +296,24 @@ void main() {
 		).unwrap()
 	);
 
-	let pipeline = Arc::new(
+	let pipeline_main = Arc::new(
+		GraphicsPipeline::start()
+			.vertex_input_single_buffer::<Vertex>()
+			.vertex_shader(vs.main_entry_point(), ())
+			.triangle_list()
+			// TODO is the vec![] needed?
+			.viewports(vec![Viewport {
+				origin: [0.0, 0.0],
+				dimensions: [320.0, 180.0],
+				depth_range: 0.0..1.0,
+			}])
+			.fragment_shader(fs_triangle.main_entry_point(), ())
+			.render_pass(Subpass::from(render_pass_main.clone(), 0).unwrap())
+			.build(device.clone())
+			.unwrap()
+	);
+
+	let pipeline_output = Arc::new(
 		GraphicsPipeline::start()
 			.vertex_input_single_buffer::<Vertex>()
 			.vertex_shader(vs.main_entry_point(), ())
@@ -277,7 +326,7 @@ void main() {
 	);
 
 	// Need this for dynamically updating the viewport when resizing the window. I think.
-	let mut dynamic_state = DynamicState {
+	let dynamic_state_none = DynamicState {
 		line_width: None,
 		viewports: None,
 		scissors: None,
@@ -285,6 +334,16 @@ void main() {
 		write_mask: None,
 		reference: None,
 	};
+
+	let mut dynamic_state = dynamic_state_none.clone();
+
+	let framebuffer_main = Arc::new(
+		Framebuffer::start(render_pass_main)
+			.add(intermediate_image.clone())
+			.unwrap()
+			.build()
+			.unwrap()
+	);
 
 	let mut framebuffers_output = window_size_dependent_setup(&images, render_pass_output.clone(), &mut dynamic_state);
 
@@ -367,15 +426,28 @@ void main() {
 					fragment_uniform_buffer.next(fragment_data).unwrap()
 				};
 
-				let layout = pipeline.layout().descriptor_set_layout(0).expect("Failed to get set layout");
+				let layout = pipeline_output.layout().descriptor_set_layout(0).expect("Failed to get set layout");
 
+				// TODO we probably want to do these descriptors elsewhere when possible?
 				let uniform_set = Arc::new(
 					PersistentDescriptorSet::start(layout.clone())
 						.add_buffer(fragment_uniform_subbuf)
 						.expect("Failed to add fragment uniform buffer")
+						.add_sampled_image(intermediate_image.clone(), sampler_simple_nearest.clone())
+						.expect("Failed to add sampled image")
 						.build()
 						.expect("Failed to build uniform object"),
 				);
+
+				// let layout = pipeline_output.layout().descriptor_set_layout(1).expect("Failed to get set layout");
+				//
+				// let sampler_set = Arc::new(
+				// 	PersistentDescriptorSet::start(layout.clone())
+				// 		.add_sampled_image(intermediate_image.clone(), sampler_simple_nearest.clone())
+				// 		.expect("Failed to add sampled image")
+				// 		.build()
+				// 		.expect("Failed to build sampler object")
+				// );
 
 				let clear_values = vec![[0.0, 0.0, 0.0, 1.0].into()];
 
@@ -385,12 +457,26 @@ void main() {
 				).unwrap();
 
 				builder
+					.begin_render_pass(framebuffer_main.clone(), false, clear_values.clone())
+					.unwrap()
+					.draw(
+						pipeline_main.clone(),
+						&dynamic_state_none,
+						vertex_buffer_triangle.clone(),
+						(),
+						()
+					)
+					.unwrap()
+					.end_render_pass()
+					.unwrap();
+
+				builder
 					.begin_render_pass(framebuffers_output[image_num].clone(), false, clear_values)
 					.unwrap()
 					.draw(
-						pipeline.clone(),
+						pipeline_output.clone(),
 						&dynamic_state,
-						vertex_buffer_triangle.clone(),
+						vertex_buffer_square.clone(),
 						uniform_set,
 						(),
 					)
@@ -423,8 +509,8 @@ void main() {
 					}
 				}
 
-				// Janky solution to prevent max CPU usage for now
-				// thread::sleep(Duration::new(0, 10000000));
+				// Janky solution to prevent max CPU usage for now (sleep for 10ms)
+				thread::sleep(Duration::new(0, 10000000));
 			},
 			_ => ()
 		}
