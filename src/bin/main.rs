@@ -32,6 +32,28 @@ fn create_window(instance: &Arc<Instance>) -> (EventLoop<()>, Arc<Surface<Window
 	(events_loop, surface)
 }
 
+fn get_device_and_queue(physical: PhysicalDevice) -> (Arc<Device>, Arc<Queue>) {
+	let queue_family = physical.queue_families()
+		.find(|&q| q.supports_graphics())
+		.expect("Failed to find a graphical queue family");
+
+	println!("Selected queue family: {:?}", queue_family);
+
+	let device_ext = DeviceExtensions {
+		khr_swapchain: true,
+		..DeviceExtensions::none()
+	};
+	let (device, mut queues) = {
+		Device::new(physical, &Features ::none(), &device_ext,
+					[(queue_family, 0.5)].iter().cloned()).expect("Failed to create device")
+	};
+
+	// We only have one queue
+	// TODO use multiple queues?
+	let queue = queues.next().unwrap();
+	(device, queue)
+}
+
 fn create_swapchain(physical: PhysicalDevice, device: &Arc<Device>, surface: &Arc<Surface<Window>>, queue: &Arc<Queue>)
 		-> (Arc<Swapchain<Window>>, Vec<Arc<SwapchainImage<Window>>>) {
 	let caps = surface.capabilities(physical).unwrap();
@@ -102,47 +124,22 @@ fn main() {
 
 	let (events_loop, surface) = create_window(&instance);
 
-	// println!("Available queue families:");
-	// let queue_families = physical.queue_families();
-	// for family in queue_families {
-	// 	println!("{} {} {} {} {}",
-	// 		family.queues_count(),
-	// 		family.supports_graphics(),
-	// 		family.supports_compute(),
-	// 		family.explicitly_supports_transfers(),
-	// 		family.supports_sparse_binding());
-	// }
-
-	let queue_family = physical.queue_families()
-		.find(|&q| q.supports_graphics())
-		.expect("Failed to find a graphical queue family");
-
-	println!("Selected queue family: {:?}", queue_family);
-
-	let device_ext = DeviceExtensions {
-		khr_swapchain: true,
-		..DeviceExtensions::none()
-	};
-	let (device, mut queues) = {
-		Device::new(physical, &Features ::none(), &device_ext,
-					[(queue_family, 0.5)].iter().cloned()).expect("Failed to create device")
-	};
-
-	// We only have one queue
-	// TODO use multiple queues?
-	let queue = queues.next().unwrap();
+	let (device, queue) = get_device_and_queue(physical);
 
 	let (mut swapchain, images) =
 		create_swapchain(physical, &device, &surface, &queue);
 
-	let mut intermediate_image = /*AttachmentImage*/StorageImage::new(
+	let mut intermediate_image = AttachmentImage::with_usage(
 		device.clone(),
-		Dim2d {width: 320, height: 180} ,
+		[320, 180],
 		Format::R16G16B16A16Sfloat,
-		Some(queue.family())
+		ImageUsage {
+			storage: true,
+			color_attachment: true,
+			sampled: true,
+			..ImageUsage::none()
+		}
 	).expect("Failed to create intermediate image");
-
-	// intermediate_image.
 
 	let sampler_simple_nearest = Sampler::new(
 		device.clone(),
@@ -282,6 +279,8 @@ void main() {
 			attachments: {
 				color: {
 					// attachment is cleared upon draw
+					// TODO in future some of these can be replaced with DontCare
+					//      will want to implement more first before doing that though.
 					load: Clear,
 					store: Store,
 					format: swapchain.format(),
@@ -301,7 +300,6 @@ void main() {
 			.vertex_input_single_buffer::<Vertex>()
 			.vertex_shader(vs.main_entry_point(), ())
 			.triangle_list()
-			// TODO is the vec![] needed?
 			.viewports(vec![Viewport {
 				origin: [0.0, 0.0],
 				dimensions: [320.0, 180.0],
@@ -325,16 +323,9 @@ void main() {
 			.unwrap()
 	);
 
-	// Need this for dynamically updating the viewport when resizing the window. I think.
-	let dynamic_state_none = DynamicState {
-		line_width: None,
-		viewports: None,
-		scissors: None,
-		compare_mask: None,
-		write_mask: None,
-		reference: None,
-	};
+	let dynamic_state_none = DynamicState::none();
 
+	// Need this for dynamically updating the viewport when resizing the window.
 	let mut dynamic_state = dynamic_state_none.clone();
 
 	let framebuffer_main = Arc::new(
@@ -368,7 +359,7 @@ void main() {
 			},
 			Event::WindowEvent { event: WindowEvent::Resized(size), ..} => {
 				println!("resized {:?}", size);
-				// TODO recreate swapchain = true
+				recreate_swapchain = true;
 			},
 			Event::RedrawEventsCleared => {},
 			Event::MainEventsCleared => {
@@ -438,16 +429,6 @@ void main() {
 						.build()
 						.expect("Failed to build uniform object"),
 				);
-
-				// let layout = pipeline_output.layout().descriptor_set_layout(1).expect("Failed to get set layout");
-				//
-				// let sampler_set = Arc::new(
-				// 	PersistentDescriptorSet::start(layout.clone())
-				// 		.add_sampled_image(intermediate_image.clone(), sampler_simple_nearest.clone())
-				// 		.expect("Failed to add sampled image")
-				// 		.build()
-				// 		.expect("Failed to build sampler object")
-				// );
 
 				let clear_values = vec![[0.0, 0.0, 0.0, 1.0].into()];
 
