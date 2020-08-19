@@ -4,15 +4,16 @@ use std::time::{Duration, Instant};
 
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
-use vulkano::descriptor::descriptor_set::{DescriptorSetDesc, PersistentDescriptorSet};
+use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::device::{Device, DeviceExtensions, Features, Queue};
 use vulkano::format::Format;
 use vulkano::framebuffer::{Framebuffer, FramebufferAbstract, RenderPass, RenderPassAbstract, Subpass};
-use vulkano::image::{AttachmentImage, ImageUsage, SwapchainImage, StorageImage};
+use vulkano::image::{AttachmentImage, ImageUsage, StorageImage, SwapchainImage};
+use vulkano::image::Dimensions::Dim2d;
 use vulkano::instance::{Instance, PhysicalDevice};
 use vulkano::pipeline::GraphicsPipeline;
 use vulkano::pipeline::viewport::Viewport;
-use vulkano::sampler::{Sampler, Filter, MipmapMode, SamplerAddressMode};
+use vulkano::sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode};
 use vulkano::swapchain::{self, AcquireError, ColorSpace, FullscreenExclusive, PresentMode, Surface, SurfaceTransform, Swapchain, SwapchainCreationError};
 use vulkano::sync::{self, FlushError, GpuFuture};
 use vulkano_win::VkSurfaceBuild;
@@ -21,7 +22,8 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Window, WindowBuilder};
 
 use vulkan_test::vulkutil;
-use vulkano::image::Dimensions::Dim2d;
+
+const RESOLUTION: [u32; 2] = [320, 180];
 
 fn create_window(instance: &Arc<Instance>) -> (EventLoop<()>, Arc<Surface<Window>>) {
 	let events_loop = EventLoop::new();
@@ -131,7 +133,7 @@ fn main() {
 
 	let mut intermediate_image = AttachmentImage::with_usage(
 		device.clone(),
-		[320, 180],
+		RESOLUTION,
 		Format::R16G16B16A16Sfloat,
 		ImageUsage {
 			storage: true,
@@ -223,8 +225,12 @@ layout(location = 0) in vec2 fragTexCoord;
 
 layout(location = 0) out vec4 f_color;
 
+layout(push_constant) uniform PushConstants {
+	float time;
+} pushConstants;
+
 void main() {
-	f_color = vec4(0.1, 0.25, 1.0, 1.0);
+	f_color = vec4(sin(pushConstants.time/4.0), 0.25, 1.0, 1.0);
 }"
 		}
 	}
@@ -238,18 +244,20 @@ layout(location = 0) in vec2 fragTexCoord;
 
 layout(location = 0) out vec4 f_color;
 
-layout(binding = 0) uniform unf_data {
+layout(push_constant) uniform PushConstants {
 	float time;
-};
-layout(binding = 1) uniform sampler2D texSampler;
+} pushConstants;
+
+layout(binding = 0) uniform sampler2D texSampler;
+
 void main() {
-	// f_color = vec4(sin(time/4.0), 0.25, 1.0, 1.0);
+	// f_color = vec4(sin(pushConstants.time/4.0), 0.25, 1.0, 1.0);
 	f_color = texture(texSampler, fragTexCoord);
 }"
 		}
 	}
 
-	let fragment_uniform_buffer = CpuBufferPool::<fs_output::ty::unf_data>::new(device.clone(), BufferUsage::all());
+	// let fragment_uniform_buffer = CpuBufferPool::<fs_output::ty::unf_data>::new(device.clone(), BufferUsage::all());
 
 	let vs = vs::Shader::load(device.clone()).unwrap();
 	let fs_triangle = fs_triangle::Shader::load(device.clone()).unwrap();
@@ -302,7 +310,7 @@ void main() {
 			.triangle_list()
 			.viewports(vec![Viewport {
 				origin: [0.0, 0.0],
-				dimensions: [320.0, 180.0],
+				dimensions: [RESOLUTION[0] as f32, RESOLUTION[1] as f32],
 				depth_range: 0.0..1.0,
 			}])
 			.fragment_shader(fs_triangle.main_entry_point(), ())
@@ -408,27 +416,32 @@ void main() {
 					recreate_swapchain = true;
 				}
 
-				let fragment_uniform_subbuf = {
-					let elapsed = start_instant.elapsed().as_secs_f32();
-
-					let fragment_data = fs_output::ty::unf_data {
-						time: elapsed
-					};
-					fragment_uniform_buffer.next(fragment_data).unwrap()
-				};
+				// let fragment_uniform_subbuf = {
+				// 	let elapsed = start_instant.elapsed().as_secs_f32();
+				//
+				// 	let fragment_data = fs_output::ty::unf_data {
+				// 		time: elapsed
+				// 	};
+				// 	fragment_uniform_buffer.next(fragment_data).unwrap()
+				// };
 
 				let layout = pipeline_output.layout().descriptor_set_layout(0).expect("Failed to get set layout");
 
 				// TODO we probably want to do these descriptors elsewhere when possible?
 				let uniform_set = Arc::new(
 					PersistentDescriptorSet::start(layout.clone())
-						.add_buffer(fragment_uniform_subbuf)
-						.expect("Failed to add fragment uniform buffer")
+						// .add_buffer(fragment_uniform_subbuf)
+						// .expect("Failed to add fragment uniform buffer")
 						.add_sampled_image(intermediate_image.clone(), sampler_simple_nearest.clone())
 						.expect("Failed to add sampled image")
 						.build()
 						.expect("Failed to build uniform object"),
 				);
+
+				let elapsed = start_instant.elapsed().as_secs_f32();
+				let push_constants = fs_output::ty::PushConstants {
+					time: elapsed
+				};
 
 				let clear_values = vec![[0.0, 0.0, 0.0, 1.0].into()];
 
@@ -445,7 +458,7 @@ void main() {
 						&dynamic_state_none,
 						vertex_buffer_triangle.clone(),
 						(),
-						()
+						push_constants
 					)
 					.unwrap()
 					.end_render_pass()
@@ -459,7 +472,7 @@ void main() {
 						&dynamic_state,
 						vertex_buffer_square.clone(),
 						uniform_set,
-						(),
+						push_constants
 					)
 					.unwrap()
 					.end_render_pass()
