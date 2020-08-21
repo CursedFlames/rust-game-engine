@@ -21,6 +21,7 @@ use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Window, WindowBuilder};
 
+use vulkan_test::render::vert::Vertex2d;
 use vulkan_test::vulkutil;
 
 const RESOLUTION: [u32; 2] = [320, 180];
@@ -157,13 +158,7 @@ fn main() {
 		1.0
 	).expect("Failed to create sampler");
 
-	// TODO move this Vertex struct to somewhere more sensible
-	//      ideally move all this buffer stuff somewhere more sensible, really.
-	#[derive(Default, Debug, Clone)]
-	struct Vertex {
-		position: [f32; 2],
-	}
-	vulkano::impl_vertex!(Vertex, position);
+	// TODO move all this buffer stuff somewhere more sensible
 
 	let vertex_buffer_triangle = {
 		CpuAccessibleBuffer::from_iter(
@@ -172,9 +167,9 @@ fn main() {
 			BufferUsage::all(),
 			false,
 			[
-				Vertex {position: [-0.5, -0.25]},
-				Vertex {position: [0.0, 0.5]},
-				Vertex {position: [0.25, -0.1]},
+				Vertex2d {position: [-0.5, -0.25]},
+				Vertex2d {position: [0.0, 0.5]},
+				Vertex2d {position: [0.25, -0.1]},
 			].iter().cloned()
 		).unwrap()
 	};
@@ -187,12 +182,12 @@ fn main() {
 			false,
 			[
 				// TODO do quads properly lmao
-				Vertex {position: [-1.0, -1.0]},
-				Vertex {position: [-1.0, 1.0]},
-				Vertex {position: [1.0, -1.0]},
-				Vertex {position: [1.0, 1.0]},
-				Vertex {position: [-1.0, 1.0]},
-				Vertex {position: [1.0, -1.0]},
+				Vertex2d {position: [-1.0, -1.0]},
+				Vertex2d {position: [-1.0, 1.0]},
+				Vertex2d {position: [1.0, -1.0]},
+				Vertex2d {position: [1.0, 1.0]},
+				Vertex2d {position: [-1.0, 1.0]},
+				Vertex2d {position: [1.0, -1.0]},
 			].iter().cloned()
 		).unwrap()
 	};
@@ -305,7 +300,7 @@ void main() {
 
 	let pipeline_main = Arc::new(
 		GraphicsPipeline::start()
-			.vertex_input_single_buffer::<Vertex>()
+			.vertex_input_single_buffer::<Vertex2d>()
 			.vertex_shader(vs.main_entry_point(), ())
 			.triangle_list()
 			.viewports(vec![Viewport {
@@ -321,7 +316,7 @@ void main() {
 
 	let pipeline_output = Arc::new(
 		GraphicsPipeline::start()
-			.vertex_input_single_buffer::<Vertex>()
+			.vertex_input_single_buffer::<Vertex2d>()
 			.vertex_shader(vs.main_entry_point(), ())
 			.triangle_list()
 			.viewports_dynamic_scissors_irrelevant(1)
