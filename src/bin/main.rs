@@ -21,6 +21,7 @@ use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Window, WindowBuilder};
 
+use vulkan_test::render::renderer::{self, Renderer};
 use vulkan_test::render::vert::Vertex2d;
 use vulkan_test::vulkutil;
 
@@ -117,7 +118,7 @@ fn window_size_dependent_setup(
 }
 
 fn main() {
-	let instance = {
+	/*let instance = {
 		let extensions = vulkano_win::required_extensions();
 		Instance::new(None, &extensions, None)
 			.expect("Failed to create Vulkan instance.")
@@ -343,7 +344,11 @@ void main() {
 
 	let mut recreate_swapchain = false;
 	// I'm not clear on what exactly this does, but it sounds important for freeing memory that's no longer needed
-	let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
+	let mut previous_frame_end = Some(sync::now(device.clone()).boxed());*/
+
+	let events_loop = EventLoop::new();
+
+	let mut renderer = Renderer::init(&events_loop);
 
 	let start_instant = Instant::now();
 	let mut frame_count = 0;
@@ -362,7 +367,7 @@ void main() {
 			},
 			Event::WindowEvent { event: WindowEvent::Resized(size), ..} => {
 				println!("resized {:?}", size);
-				recreate_swapchain = true;
+				renderer.recreate_swapchain = true;
 			},
 			Event::RedrawEventsCleared => {},
 			Event::MainEventsCleared => {
@@ -376,82 +381,60 @@ void main() {
 				frames_since_last_print += 1;
 
 				// Free resources that are no longer needed? :shrug:
-				previous_frame_end.as_mut().unwrap().cleanup_finished();
+				renderer.previous_frame_end.as_mut().unwrap().cleanup_finished();
 
-				if recreate_swapchain {
-					let dimensions: [u32; 2] = surface.window().inner_size().into();
+				if renderer.recreate_swapchain {
+					let dimensions: [u32; 2] = renderer.surface.window().inner_size().into();
 					let (new_swapchain, new_images) =
-						match swapchain.recreate_with_dimensions(dimensions) {
+						match renderer.swapchain.recreate_with_dimensions(dimensions) {
 							Ok(r) => r,
 							// This tends to happen while the user is resizing the window, apparently
 							Err(SwapchainCreationError::UnsupportedDimensions) => return,
 							Err(e) => panic!("Failed to recreate swapchain: {:?}", e)
 						};
 
-					swapchain = new_swapchain;
-					framebuffers_output = window_size_dependent_setup(
+					renderer.swapchain = new_swapchain;
+					renderer.framebuffers_output = window_size_dependent_setup(
 						&new_images,
-						render_pass_output.clone(),
-						&mut dynamic_state,
+						renderer.render_pass_output.clone(),
+						&mut renderer.dynamic_state,
 					);
-					recreate_swapchain = false;
+					renderer.recreate_swapchain = false;
 				}
 
 				let (image_num, suboptimal, acquire_future) =
-					match swapchain::acquire_next_image(swapchain.clone(), None) {
+					match swapchain::acquire_next_image(renderer.swapchain.clone(), None) {
 						Ok(r) => r,
 						Err(AcquireError::OutOfDate) => {
-							recreate_swapchain = true;
+							renderer.recreate_swapchain = true;
 							return;
 						}
 						Err(e) => panic!("Failed to acquire next image: {:?}", e)
 					};
 
 				if suboptimal {
-					recreate_swapchain = true;
+					renderer.recreate_swapchain = true;
 				}
 
-				// let fragment_uniform_subbuf = {
-				// 	let elapsed = start_instant.elapsed().as_secs_f32();
-				//
-				// 	let fragment_data = fs_output::ty::unf_data {
-				// 		time: elapsed
-				// 	};
-				// 	fragment_uniform_buffer.next(fragment_data).unwrap()
-				// };
-
-				let layout = pipeline_output.layout().descriptor_set_layout(0).expect("Failed to get set layout");
-
-				// TODO we probably want to do these descriptors elsewhere when possible?
-				let uniform_set = Arc::new(
-					PersistentDescriptorSet::start(layout.clone())
-						// .add_buffer(fragment_uniform_subbuf)
-						// .expect("Failed to add fragment uniform buffer")
-						.add_sampled_image(intermediate_image.clone(), sampler_simple_nearest.clone())
-						.expect("Failed to add sampled image")
-						.build()
-						.expect("Failed to build uniform object"),
-				);
-
 				let elapsed = start_instant.elapsed().as_secs_f32();
-				let push_constants = fs_output::ty::PushConstants {
+				let push_constants = renderer::fs_output::ty::PushConstants {
 					time: elapsed
 				};
 
 				let clear_values = vec![[0.0, 0.0, 0.0, 1.0].into()];
 
 				let mut builder = AutoCommandBufferBuilder::primary_one_time_submit(
-					device.clone(),
-					queue.family(),
+					renderer.device.clone(),
+					renderer.graphics_queue.family(),
 				).unwrap();
 
 				builder
-					.begin_render_pass(framebuffer_main.clone(), false, clear_values.clone())
+					.begin_render_pass(renderer.framebuffer_main.clone(), false, clear_values.clone())
 					.unwrap()
 					.draw(
-						pipeline_main.clone(),
-						&dynamic_state_none,
-						vertex_buffer_triangle.clone(),
+						renderer.pipeline_main.clone(),
+						&DynamicState::none(),
+						vec![renderer.vertex_buffer_triangle.clone()],
 						(),
 						push_constants
 					)
@@ -460,13 +443,13 @@ void main() {
 					.unwrap();
 
 				builder
-					.begin_render_pass(framebuffers_output[image_num].clone(), false, clear_values)
+					.begin_render_pass(renderer.framebuffers_output[image_num].clone(), false, clear_values)
 					.unwrap()
 					.draw(
-						pipeline_output.clone(),
-						&dynamic_state,
-						vertex_buffer_square.clone(),
-						uniform_set,
+						renderer.pipeline_output.clone(),
+						&renderer.dynamic_state,
+						vec![renderer.vertex_buffer_square.clone()],
+						renderer.descriptor_set_output.clone(),
 						push_constants
 					)
 					.unwrap()
@@ -475,26 +458,26 @@ void main() {
 
 				let command_buffer = builder.build().unwrap();
 
-				let future = previous_frame_end
+				let future = renderer.previous_frame_end
 					.take()
 					.unwrap()
 					.join(acquire_future)
-					.then_execute(queue.clone(), command_buffer)
+					.then_execute(renderer.graphics_queue.clone(), command_buffer)
 					.unwrap()
-					.then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
+					.then_swapchain_present(renderer.graphics_queue.clone(), renderer.swapchain.clone(), image_num)
 					.then_signal_fence_and_flush();
 
 				match future {
 					Ok(future) => {
-						previous_frame_end = Some(future.boxed());
+						renderer.previous_frame_end = Some(future.boxed());
 					},
 					Err(FlushError::OutOfDate) => {
-						recreate_swapchain = true;
-						previous_frame_end = Some(sync::now(device.clone()).boxed());
+						renderer.recreate_swapchain = true;
+						renderer.previous_frame_end = Some(sync::now(renderer.device.clone()).boxed());
 					},
 					Err(e) => {
 						println!("Failed to flush future: {:?}", e);
-						previous_frame_end = Some(sync::now(device.clone()).boxed());
+						renderer.previous_frame_end = Some(sync::now(renderer.device.clone()).boxed());
 					}
 				}
 
