@@ -5,19 +5,18 @@ use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 
 use vulkan_test::render::renderer::Renderer;
+use vulkan_test::util::timing::Timing;
 
 fn main() {
 	let events_loop = EventLoop::new();
-
 	let mut renderer = Renderer::init(&events_loop);
+	let mut timing = Timing::new();
 
-	let start_instant = Instant::now();
-	// let mut frame_count = 0;
-	let mut last_print_time = 0.0;
-	let mut frames_since_last_print = 0;
+	// let mut tick_count = 0;
 
 	events_loop.run(move |event, _, control_flow| {
 		// Not used since it means framerate is kept low unless events are occurring
+		// We might want to use it when window is minimized, etc.?
 		// *control_flow = ControlFlow::Wait;
 
 		// Commented out to prevent console spam
@@ -32,21 +31,17 @@ fn main() {
 			},
 			Event::RedrawEventsCleared => {},
 			Event::MainEventsCleared => {
-				let time_elapsed = start_instant.elapsed().as_secs_f64();
-				if time_elapsed > last_print_time + 1.0 {
-					println!("{} FPS", frames_since_last_print);
-					last_print_time = time_elapsed;
-					frames_since_last_print = 0;
+				timing.wait_for_next_frame();
+				/*let delta = */timing.on_update();
+				let time = timing.get_total_time();
+
+				// TODO actually do tick stuff
+				while timing.try_consume_tick() {
+					// println!("tick {}", tick_count);
+					// tick_count += 1;
 				}
-				// frame_count += 1;
-				frames_since_last_print += 1;
 
-				let elapsed = start_instant.elapsed().as_secs_f32();
-
-				renderer.draw_frame(elapsed);
-
-				// Janky solution to prevent max CPU usage for now (sleep for 10ms)
-				thread::sleep(Duration::new(0, 10000000));
+				renderer.draw_frame(time as f32);
 			},
 			_ => ()
 		}
