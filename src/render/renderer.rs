@@ -418,4 +418,106 @@ impl Renderer {
 			})
 			.collect::<Vec<_>>()
 	}
+
+	pub fn draw_frame(&mut self, time_elapsed: f32) {
+		// Free resources that are no longer needed? :shrug:
+		self.previous_frame_end.as_mut().unwrap().cleanup_finished();
+
+		if self.recreate_swapchain {
+			let dimensions: [u32; 2] = self.surface.window().inner_size().into();
+			let (new_swapchain, new_images) =
+				match self.swapchain.recreate_with_dimensions(dimensions) {
+					Ok(r) => r,
+					// This tends to happen while the user is resizing the window, apparently
+					Err(SwapchainCreationError::UnsupportedDimensions) => return,
+					Err(e) => panic!("Failed to recreate swapchain: {:?}", e)
+				};
+
+			self.swapchain = new_swapchain;
+			self.framebuffers_output = Self::window_size_dependent_setup(
+				&new_images,
+				self.render_pass_output.clone(),
+				&mut self.dynamic_state,
+			);
+			self.recreate_swapchain = false;
+		}
+
+		let (image_num, suboptimal, acquire_future) =
+			match swapchain::acquire_next_image(self.swapchain.clone(), None) {
+				Ok(r) => r,
+				Err(AcquireError::OutOfDate) => {
+					self.recreate_swapchain = true;
+					return;
+				}
+				Err(e) => panic!("Failed to acquire next image: {:?}", e)
+			};
+
+		if suboptimal {
+			self.recreate_swapchain = true;
+		}
+
+		let push_constants = fs_output::ty::PushConstants {
+			time: time_elapsed
+		};
+
+		let clear_values = vec![[0.0, 0.0, 0.0, 1.0].into()];
+
+		let mut builder = AutoCommandBufferBuilder::primary_one_time_submit(
+			self.device.clone(),
+			self.graphics_queue.family(),
+		).unwrap();
+
+		builder
+			.begin_render_pass(self.framebuffer_main.clone(), false, clear_values.clone())
+			.unwrap()
+			.draw(
+				self.pipeline_main.clone(),
+				&DynamicState::none(),
+				vec![self.vertex_buffer_triangle.clone()],
+				(),
+				push_constants
+			)
+			.unwrap()
+			.end_render_pass()
+			.unwrap();
+
+		builder
+			.begin_render_pass(self.framebuffers_output[image_num].clone(), false, clear_values)
+			.unwrap()
+			.draw(
+				self.pipeline_output.clone(),
+				&self.dynamic_state,
+				vec![self.vertex_buffer_square.clone()],
+				self.descriptor_set_output.clone(),
+				push_constants
+			)
+			.unwrap()
+			.end_render_pass()
+			.unwrap();
+
+		let command_buffer = builder.build().unwrap();
+
+		let future = self.previous_frame_end
+			.take()
+			.unwrap()
+			.join(acquire_future)
+			.then_execute(self.graphics_queue.clone(), command_buffer)
+			.unwrap()
+			.then_swapchain_present(self.graphics_queue.clone(), self.swapchain.clone(), image_num)
+			.then_signal_fence_and_flush();
+
+		match future {
+			Ok(future) => {
+				self.previous_frame_end = Some(future.boxed());
+			},
+			Err(FlushError::OutOfDate) => {
+				self.recreate_swapchain = true;
+				self.previous_frame_end = Some(sync::now(self.device.clone()).boxed());
+			},
+			Err(e) => {
+				println!("Failed to flush future: {:?}", e);
+				self.previous_frame_end = Some(sync::now(self.device.clone()).boxed());
+			}
+		}
+	}
 }
