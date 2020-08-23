@@ -6,7 +6,7 @@ use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 
 use vulkan_test::render::renderer::Renderer;
-use vulkan_test::util::timing::Timing;
+use vulkan_test::util::timing::TickTiming;
 
 fn main() {
 	let events_loop = EventLoop::new();
@@ -15,9 +15,9 @@ fn main() {
 	let mut timer = LoopHelper::builder()
 		.report_interval_s(0.5)
 		.build_with_target_rate(60.0);
+	let mut tick_timer = TickTiming::new(1.0/60.0);
 
-	// let mut tick_count = 0;
-
+	let mut tick_count = 0_u32;
 	let mut time = 0.0;
 
 	events_loop.run(move |event, _, control_flow| {
@@ -37,13 +37,11 @@ fn main() {
 			},
 			Event::RedrawEventsCleared => {},
 			Event::MainEventsCleared => {
-				// timing.wait_for_next_frame();
-				// /*let delta = */timing.on_update();
-				// let time = timing.get_total_time();
-
 				timer.loop_sleep();
 
 				let delta = timer.loop_start();
+				tick_timer.add_delta(delta);
+
 				time += delta.as_secs_f64();
 
 				if let Some(fps) = timer.report_rate() {
@@ -51,12 +49,12 @@ fn main() {
 				}
 
 				// // TODO actually do tick stuff
-				// while timing.try_consume_tick() {
-				// 	// println!("tick {}", tick_count);
-				// 	// tick_count += 1;
-				// }
-
-				// let time = timer.
+				while tick_timer.try_consume_tick() {
+					if tick_count % 60 == 0 {
+						println!("tick {}", tick_count);
+					}
+					tick_count += 1;
+				}
 
 				renderer.draw_frame(time as f32);
 			},
