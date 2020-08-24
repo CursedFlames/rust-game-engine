@@ -2,10 +2,11 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool, BufferAccess};
+use cgmath::{SquareMatrix, Zero};
+use vulkano::buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer, CpuBufferPool};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
+use vulkano::descriptor::{DescriptorSet, PipelineLayoutAbstract};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
-use vulkano::descriptor::{PipelineLayoutAbstract, DescriptorSet};
 use vulkano::device::{Device, DeviceExtensions, Features, Queue};
 use vulkano::format::Format;
 use vulkano::framebuffer::{Framebuffer, FramebufferAbstract, RenderPass, RenderPassAbstract, Subpass};
@@ -26,7 +27,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Window, WindowBuilder};
 
 use crate::render::vert;
-use crate::render::vert::Vertex2d;
+use crate::render::vert::{Vertex2d, Vertex3d};
 use crate::vulkutil;
 
 pub const RESOLUTION: [u32; 2] = [320, 180];
@@ -39,13 +40,39 @@ pub mod vs {
 		ty: "vertex",
 		src: "\
 #version 450
+layout(location = 0) in vec3 position;
+
+layout(location = 0) out vec2 fragTexCoord;
+layout(location = 1) out vec3 color;
+
+layout(push_constant) uniform PushConstants {
+	// not needed but I left it here because I didn't feel like fiddling with offsets
+	float time;
+	mat4 transform;
+} pushConstants;
+
+void main() {
+	vec4 pos4 = vec4(position.xyz, 1.0);
+	vec4 transformed_pos = pushConstants.transform*pos4;
+	gl_Position = transformed_pos;
+	fragTexCoord = position.xy;
+	color = vec3(transformed_pos.xy, 1.0-(transformed_pos.x + transformed_pos.y)/2.0);
+}"
+	}
+}
+
+pub mod vs_output {
+	vulkano_shaders::shader! {
+		ty: "vertex",
+		src: "\
+#version 450
 layout(location = 0) in vec2 position;
 
 layout(location = 0) out vec2 fragTexCoord;
 
 void main() {
 	gl_Position = vec4(position, 0.0, 1.0);
-	fragTexCoord = position;
+	fragTexCoord = (position+vec2(1.0, 1.0))/2.0;
 }"
 	}
 }
@@ -56,6 +83,7 @@ pub mod fs_triangle {
 		src: "\
 #version 450
 layout(location = 0) in vec2 fragTexCoord;
+layout(location = 1) in vec3 color;
 
 layout(location = 0) out vec4 f_color;
 
@@ -64,7 +92,8 @@ layout(push_constant) uniform PushConstants {
 } pushConstants;
 
 void main() {
-	f_color = vec4(sin(pushConstants.time/4.0), 0.25, 1.0, 1.0);
+	// f_color = vec4(sin(pushConstants.time/4.0), 0.25, 1.0, 1.0);
+	f_color = vec4(color, 1.0);
 }"
 	}
 }
@@ -180,9 +209,9 @@ impl Renderer {
 				BufferUsage::all(),
 				false,
 				[
-					Vertex2d {position: [-0.5, -0.25]},
-					Vertex2d {position: [0.0, 0.5]},
-					Vertex2d {position: [0.25, -0.1]},
+					Vertex3d {position: [0.0, 0.0, 0.0]},
+					Vertex3d {position: [320.0, 90.0, 0.0]},
+					Vertex3d {position: [160.0, 180.0, 0.0]},
 				].iter().cloned()
 			).unwrap()
 		};
@@ -194,13 +223,11 @@ impl Renderer {
 				BufferUsage::all(),
 				false,
 				[
-					// TODO do quads properly lmao
+					// Full screen quad using an oversized triangle.
+					// Slightly more efficient than two triangles, I think? :shrug:
 					Vertex2d {position: [-1.0, -1.0]},
-					Vertex2d {position: [-1.0, 1.0]},
-					Vertex2d {position: [1.0, -1.0]},
-					Vertex2d {position: [1.0, 1.0]},
-					Vertex2d {position: [-1.0, 1.0]},
-					Vertex2d {position: [1.0, -1.0]},
+					Vertex2d {position: [-1.0, 3.0]},
+					Vertex2d {position: [3.0, -1.0]},
 				].iter().cloned()
 			).unwrap()
 		};
@@ -208,6 +235,7 @@ impl Renderer {
 		// let fragment_uniform_buffer = CpuBufferPool::<fs_output::ty::unf_data>::new(device.clone(), BufferUsage::all());
 
 		let vs = vs::Shader::load(device.clone()).unwrap();
+		let vs_output = vs_output::Shader::load(device.clone()).unwrap();
 		let fs_triangle = fs_triangle::Shader::load(device.clone()).unwrap();
 		let fs_output = fs_output::Shader::load(device.clone()).unwrap();
 
@@ -253,7 +281,7 @@ impl Renderer {
 
 		let pipeline_main = Arc::new(
 			GraphicsPipeline::start()
-				.vertex_input_single_buffer::<Vertex2d>()
+				.vertex_input_single_buffer::<Vertex3d>()
 				.vertex_shader(vs.main_entry_point(), ())
 				.triangle_list()
 				.viewports(vec![Viewport {
@@ -270,7 +298,7 @@ impl Renderer {
 		let pipeline_output = Arc::new(
 			GraphicsPipeline::start()
 				.vertex_input_single_buffer::<Vertex2d>()
-				.vertex_shader(vs.main_entry_point(), ())
+				.vertex_shader(vs_output.main_entry_point(), ())
 				.triangle_list()
 				.viewports_dynamic_scissors_irrelevant(1)
 				.fragment_shader(fs_output.main_entry_point(), ())
@@ -455,8 +483,20 @@ impl Renderer {
 		if suboptimal {
 			self.recreate_swapchain = true;
 		}
+		let scale = cgmath::Matrix4::
+			from_nonuniform_scale(2.0/320.0, 2.0/180.0, 1.0);
+		let translation = cgmath::Matrix4::
+			from_translation(cgmath::Vector3::new(-1.0, -1.0, 0.0));
 
-		let push_constants = fs_output::ty::PushConstants {
+		let transformation_matrix = translation * scale;
+
+		let push_constants = vs::ty::PushConstants {
+			time: time_elapsed,
+			_dummy0: [0u8; 12],
+			transform: transformation_matrix.into(),
+		};
+
+		let push_constants_output = fs_output::ty::PushConstants {
 			time: time_elapsed
 		};
 
