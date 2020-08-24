@@ -7,10 +7,13 @@ use winit::event_loop::{ControlFlow, EventLoop};
 
 use vulkan_test::render::renderer::Renderer;
 use vulkan_test::util::timing::TickTiming;
+use vulkan_test::game::Game;
 
 fn main() {
 	let events_loop = EventLoop::new();
 	let mut renderer = Renderer::init(&events_loop);
+	let mut game = Game::new();
+
 	// let mut timing = Timing::new();
 	let mut timer = LoopHelper::builder()
 		.report_interval_s(0.5)
@@ -53,6 +56,7 @@ fn main() {
 					if tick_count % 60 == 0 {
 						println!("tick {}", tick_count);
 					}
+					game.tick(tick_count);
 					tick_count += 1;
 				}
 
