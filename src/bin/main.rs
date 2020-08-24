@@ -1,6 +1,3 @@
-use std::thread;
-use std::time::{Duration, Instant};
-
 use spin_sleep::LoopHelper;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};

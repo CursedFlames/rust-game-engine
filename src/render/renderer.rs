@@ -1,32 +1,23 @@
 use std::sync::Arc;
-use std::thread;
-use std::time::{Duration, Instant};
 
-use cgmath::{SquareMatrix, Zero};
-use vulkano::buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer, CpuBufferPool};
+use vulkano::buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::descriptor::{DescriptorSet, PipelineLayoutAbstract};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::device::{Device, DeviceExtensions, Features, Queue};
 use vulkano::format::Format;
 use vulkano::framebuffer::{Framebuffer, FramebufferAbstract, RenderPass, RenderPassAbstract, Subpass};
-use vulkano::image::{AttachmentImage, ImageUsage, StorageImage, SwapchainImage};
-use vulkano::image::Dimensions::Dim2d;
+use vulkano::image::{AttachmentImage, ImageUsage, SwapchainImage};
 use vulkano::instance::{Instance, PhysicalDevice};
-use vulkano::memory::pool::{PotentialDedicatedAllocation, StdMemoryPoolAlloc};
 use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
-use vulkano::pipeline::shader::GraphicsEntryPointAbstract;
-use vulkano::pipeline::vertex::SingleBufferDefinition;
 use vulkano::pipeline::viewport::Viewport;
 use vulkano::sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode};
 use vulkano::swapchain::{self, AcquireError, ColorSpace, FullscreenExclusive, PresentMode, Surface, SurfaceTransform, Swapchain, SwapchainCreationError};
 use vulkano::sync::{self, FlushError, GpuFuture};
 use vulkano_win::VkSurfaceBuild;
-use winit::event::{Event, WindowEvent};
-use winit::event_loop::{ControlFlow, EventLoop};
+use winit::event_loop::EventLoop;
 use winit::window::{Window, WindowBuilder};
 
-use crate::render::vert;
 use crate::render::vert::{Vertex2d, Vertex3d};
 use crate::vulkutil;
 
@@ -174,7 +165,7 @@ impl Renderer {
 
 		// Whole ton of stuff that needs to get ripped out into other functions and such
 
-		let mut intermediate_image = AttachmentImage::with_usage(
+		let intermediate_image = AttachmentImage::with_usage(
 			device.clone(),
 			RESOLUTION,
 			Format::R16G16B16A16Sfloat,
@@ -329,11 +320,11 @@ impl Renderer {
 				.unwrap()
 		);
 
-		let mut framebuffers_output = Self::window_size_dependent_setup(
+		let framebuffers_output = Self::window_size_dependent_setup(
 			&swapchain_images, render_pass_output.clone(), &mut dynamic_state);
 
 		// I'm not clear on what exactly this does, but it sounds important for freeing memory that's no longer needed
-		let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
+		let previous_frame_end = Some(sync::now(device.clone()).boxed());
 
 		Self {
 			instance,

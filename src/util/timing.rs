@@ -1,5 +1,4 @@
-use std::thread;
-use std::time::{Instant, Duration};
+use std::time::Duration;
 
 pub struct TickTiming {
 	tick_duration: f64,
