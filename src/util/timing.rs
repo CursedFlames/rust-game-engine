@@ -30,4 +30,8 @@ impl TickTiming {
 		}
 		false
 	}
+
+	pub fn get_partial_ticks(&self) -> f64 {
+		self.partial_ticks
+	}
 }

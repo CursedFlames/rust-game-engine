@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use vulkano::buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer};
+use vulkano::buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer, TypedBufferAccess, CpuBufferPool};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::descriptor::{DescriptorSet, PipelineLayoutAbstract};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
@@ -20,6 +20,7 @@ use winit::window::{Window, WindowBuilder};
 
 use crate::render::vert::{Vertex2d, Vertex3d};
 use crate::vulkutil;
+use crate::render::display::FrameBuilder;
 
 pub const RESOLUTION: [u32; 2] = [320, 180];
 
@@ -131,7 +132,8 @@ pub struct Renderer {
 	// This stuff should eventually get moved into its own struct
 	pub intermediate_image: Arc<AttachmentImage>,
 	pub sampler_simple_nearest: Arc<Sampler>,
-	pub vertex_buffer_triangle: Arc<dyn BufferAccess + Send + Sync>,
+	vertex_buffer_pool: CpuBufferPool<Vertex3d>,
+	index_buffer_pool: CpuBufferPool<u32>,
 	pub vertex_buffer_square: Arc<dyn BufferAccess + Send + Sync>,
 	pub render_pass_main: Arc<dyn RenderPassAbstract + Send + Sync>,
 	pub render_pass_output: Arc<dyn RenderPassAbstract + Send + Sync>,
@@ -191,21 +193,8 @@ impl Renderer {
 			1.0
 		).expect("Failed to create sampler");
 
-		// TODO move all this buffer stuff somewhere more sensible
-
-		let vertex_buffer_triangle = {
-			CpuAccessibleBuffer::from_iter(
-				device.clone(),
-				// TODO pick actual BufferUsage
-				BufferUsage::all(),
-				false,
-				[
-					Vertex3d {position: [0.0, 0.0, 0.0]},
-					Vertex3d {position: [320.0, 90.0, 0.0]},
-					Vertex3d {position: [160.0, 180.0, 0.0]},
-				].iter().cloned()
-			).unwrap()
-		};
+		let vertex_buffer_pool_triangle = CpuBufferPool::new(device.clone(), BufferUsage::all());
+		let index_buffer_pool_triangle = CpuBufferPool::new(device.clone(), BufferUsage::all());
 
 		let vertex_buffer_square = {
 			CpuAccessibleBuffer::from_iter(
@@ -335,7 +324,8 @@ impl Renderer {
 
 			intermediate_image,
 			sampler_simple_nearest,
-			vertex_buffer_triangle,
+			vertex_buffer_pool: vertex_buffer_pool_triangle,
+			index_buffer_pool: index_buffer_pool_triangle,
 			vertex_buffer_square,
 			render_pass_main,
 			render_pass_output,
@@ -438,27 +428,31 @@ impl Renderer {
 			.collect::<Vec<_>>()
 	}
 
-	pub fn draw_frame(&mut self, time_elapsed: f32) {
+	fn rebuild_swapchain(&mut self) {
+		let dimensions: [u32; 2] = self.surface.window().inner_size().into();
+		let (new_swapchain, new_images) =
+			match self.swapchain.recreate_with_dimensions(dimensions) {
+				Ok(r) => r,
+				// This tends to happen while the user is resizing the window, apparently
+				Err(SwapchainCreationError::UnsupportedDimensions) => return,
+				Err(e) => panic!("Failed to recreate swapchain: {:?}", e)
+			};
+
+		self.swapchain = new_swapchain;
+		self.framebuffers_output = Self::window_size_dependent_setup(
+			&new_images,
+			self.render_pass_output.clone(),
+			&mut self.dynamic_state,
+		);
+		self.recreate_swapchain = false;
+	}
+
+	pub fn draw_frame(&mut self, mut frame: FrameBuilder) {
 		// Free resources that are no longer needed? :shrug:
 		self.previous_frame_end.as_mut().unwrap().cleanup_finished();
 
 		if self.recreate_swapchain {
-			let dimensions: [u32; 2] = self.surface.window().inner_size().into();
-			let (new_swapchain, new_images) =
-				match self.swapchain.recreate_with_dimensions(dimensions) {
-					Ok(r) => r,
-					// This tends to happen while the user is resizing the window, apparently
-					Err(SwapchainCreationError::UnsupportedDimensions) => return,
-					Err(e) => panic!("Failed to recreate swapchain: {:?}", e)
-				};
-
-			self.swapchain = new_swapchain;
-			self.framebuffers_output = Self::window_size_dependent_setup(
-				&new_images,
-				self.render_pass_output.clone(),
-				&mut self.dynamic_state,
-			);
-			self.recreate_swapchain = false;
+			self.rebuild_swapchain();
 		}
 
 		let (image_num, suboptimal, acquire_future) =
@@ -468,12 +462,21 @@ impl Renderer {
 					self.recreate_swapchain = true;
 					return;
 				}
-				Err(e) => panic!("Failed to acquire next image: {:?}", e)
+				Err(e) => panic!("Failed to acquire next swapchain image: {:?}", e)
 			};
 
 		if suboptimal {
 			self.recreate_swapchain = true;
 		}
+
+		let time = frame.get_time();
+
+		let (vert, ind) = frame.get_sprite_renderer().get_buffers();
+
+		// TODO don't unwrap these
+		let vert_buf = self.vertex_buffer_pool.chunk(vert.into_iter().cloned()).unwrap();
+		let ind_buf = self.index_buffer_pool.chunk(ind.into_iter().cloned()).unwrap();
+
 		let scale = cgmath::Matrix4::
 			from_nonuniform_scale(2.0/320.0, 2.0/180.0, 1.0);
 		let translation = cgmath::Matrix4::
@@ -482,13 +485,13 @@ impl Renderer {
 		let transformation_matrix = translation * scale;
 
 		let push_constants = vs::ty::PushConstants {
-			time: time_elapsed,
+			time,
 			_dummy0: [0u8; 12],
 			transform: transformation_matrix.into(),
 		};
 
 		let push_constants_output = fs_output::ty::PushConstants {
-			time: time_elapsed
+			time
 		};
 
 		let clear_values = vec![[0.0, 0.0, 0.0, 1.0].into()];
@@ -501,10 +504,11 @@ impl Renderer {
 		builder
 			.begin_render_pass(self.framebuffer_main.clone(), false, clear_values.clone())
 			.unwrap()
-			.draw(
+			.draw_indexed(
 				self.pipeline_main.clone(),
 				&DynamicState::none(),
-				vec![self.vertex_buffer_triangle.clone()],
+				vec![Arc::new(vert_buf)],
+				ind_buf,
 				(),
 				push_constants
 			)

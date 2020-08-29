@@ -14,7 +14,7 @@ fn main() {
 	// let mut timing = Timing::new();
 	let mut timer = LoopHelper::builder()
 		.report_interval_s(0.5)
-		.build_with_target_rate(60.0);
+		.build_with_target_rate(120.0);
 	let mut tick_timer = TickTiming::new(1.0/60.0);
 
 	let mut tick_count = 0_u32;
@@ -48,7 +48,6 @@ fn main() {
 					println!("FPS: {}", fps);
 				}
 
-				// // TODO actually do tick stuff
 				while tick_timer.try_consume_tick() {
 					if tick_count % 60 == 0 {
 						println!("tick {}", tick_count);
@@ -57,7 +56,7 @@ fn main() {
 					tick_count += 1;
 				}
 
-				renderer.draw_frame(time as f32);
+				game.draw_frame(&mut renderer, tick_count, tick_timer.get_partial_ticks() as f32, time as f32);
 			},
 			_ => ()
 		}
