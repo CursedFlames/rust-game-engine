@@ -15,8 +15,6 @@ pub struct DisplayElementSquare {
 
 impl DisplayElement for DisplayElementSquare {
 	fn draw(&self, renderer: &mut SpriteRenderer, pos: &Pos) {
-		// println!("draw() called");
-
 		renderer.draw_test_square(pos.x, pos.y);
 	}
 }
@@ -54,7 +52,6 @@ impl SpriteRenderer {
 		}
 	}
 
-	// 0 1 2 2 1 3
 	/// Draw an 8x8 square. For testing until actual rendering stuff is implemented.
 	pub fn draw_test_square(&mut self, x: i32, y: i32) {
 		let x = x as f32;
@@ -66,6 +63,7 @@ impl SpriteRenderer {
 			Vertex3d {position: [x, y+8.0, 0.0]},
 			Vertex3d {position: [x+8.0, y+8.0, 0.0]},
 		].into_iter());
+		// 0 1 2 2 1 3
 		self.indices.extend([
 			offset,
 			offset+1,
@@ -80,14 +78,3 @@ impl SpriteRenderer {
 		(&self.vertices, &self.indices)
 	}
 }
-
-// pub struct SpriteRenderer<'a> {
-// 	vertex_buffer: WriteLock<'a, CpuAccessibleBuffer<Vertex2d>>,
-// 	index_buffer: WriteLock<'a, CpuAccessibleBuffer<u32>>,
-// }
-//
-// impl SpriteRenderer {
-// 	fn add_quad(&mut self) {
-// 		// self.index_buffer.write().unwrap().writev();
-// 	}
-// }

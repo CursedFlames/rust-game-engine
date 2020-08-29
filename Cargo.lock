@@ -916,6 +916,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "shaders"
+version = "0.1.0"
+dependencies = [
+ "vulkano",
+ "vulkano-shaders",
+]
+
+[[package]]
 name = "shared_library"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1022,6 +1030,7 @@ version = "0.1.0"
 dependencies = [
  "cgmath",
  "hecs",
+ "shaders",
  "spin_sleep",
  "vulkano",
  "vulkano-shaders",
