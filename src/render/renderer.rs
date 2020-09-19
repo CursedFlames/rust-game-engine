@@ -39,61 +39,26 @@ fn select_physical_device(instance: &Arc<Instance>) -> PhysicalDevice {
 	physical
 }
 
-pub struct Renderer {
-	// TODO these shouldn't all be pub
-	instance: Arc<Instance>,
-
-	pub surface: Arc<Surface<Window>>,
-
-	// Rust *really* doesn't like it when we try to store the physical device directly.
-	// Wind up with a bunch of weird lifetime issues that I don't understand. :shrug:
-	// TODO Seta seemed to store the physical device directly; do it how he did it
-	physical_device_index: usize,
-	pub device: Arc<Device>,
-
-	pub graphics_queue: Arc<Queue>,
-
-	pub swapchain: Arc<Swapchain<Window>>,
-	pub swapchain_images: Vec<Arc<SwapchainImage<Window>>>,
-
-	// This stuff should eventually get moved into its own struct
-	pub intermediate_image: Arc<AttachmentImage>,
-	pub sampler_simple_nearest: Arc<Sampler>,
+// Not sure if this is the best name for this struct but whatever.
+// Contains all the various things used in the actual rendering process
+// (as opposed to Renderer, which just has devices and queues and the swapchain and such)
+struct RenderData {
+	intermediate_image: Arc<AttachmentImage>,
+	sampler_simple_nearest: Arc<Sampler>,
 	vertex_buffer_pool: CpuBufferPool<Vertex3d>,
 	index_buffer_pool: CpuBufferPool<u32>,
-	pub vertex_buffer_square: Arc<dyn BufferAccess + Send + Sync>,
-	pub render_pass_main: Arc<dyn RenderPassAbstract + Send + Sync>,
-	pub render_pass_output: Arc<dyn RenderPassAbstract + Send + Sync>,
-	pub pipeline_main: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
-	pub pipeline_output: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
-	pub descriptor_set_output: Arc<dyn DescriptorSet + Send + Sync>,
-	pub dynamic_state: DynamicState,
-	pub framebuffer_main: Arc<dyn FramebufferAbstract + Send + Sync>,
-	pub framebuffers_output: Vec<Arc<dyn FramebufferAbstract + Send + Sync>>,
-
-	pub previous_frame_end: Option<Box<dyn GpuFuture>>,
-	pub recreate_swapchain: bool,
+	vertex_buffer_square: Arc<dyn BufferAccess + Send + Sync>,
+	render_pass_main: Arc<dyn RenderPassAbstract + Send + Sync>,
+	render_pass_output: Arc<dyn RenderPassAbstract + Send + Sync>,
+	pipeline_main: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
+	pipeline_output: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
+	descriptor_set_output: Arc<dyn DescriptorSet + Send + Sync>,
+	dynamic_state: DynamicState,
+	framebuffer_main: Arc<dyn FramebufferAbstract + Send + Sync>,
 }
 
-impl Renderer {
-	pub fn init(events_loop: &EventLoop<()>) -> Self {
-		let instance = {
-			let extensions = vulkano_win::required_extensions();
-			Instance::new(None, &extensions, None)
-				.expect("Failed to create Vulkan instance.")
-		};
-		let physical = select_physical_device(&instance);
-		let physical_device_index = physical.index();
-
-		let surface = Self::create_window(&instance, &events_loop);
-
-		let (device, queue) = Self::get_device_and_queue(physical);
-
-		let (swapchain, swapchain_images) =
-			Self::create_swapchain(physical, &device, &surface, &queue);
-
-		// Whole ton of stuff that needs to get ripped out into other functions and such
-
+impl RenderData {
+	fn init(device: &Arc<Device>, swapchain_format: Format) -> Self {
 		let intermediate_image = AttachmentImage::with_usage(
 			device.clone(),
 			RESOLUTION,
@@ -174,7 +139,7 @@ impl Renderer {
 					//      will want to implement more first before doing that though.
 					load: Clear,
 					store: Store,
-					format: swapchain.format(),
+					format: swapchain_format,
 					// no idea what this does, but the vulkano example uses it
 					samples: 1,
 				}
@@ -236,19 +201,7 @@ impl Renderer {
 				.unwrap()
 		);
 
-		let framebuffers_output = Self::window_size_dependent_setup(
-			&swapchain_images, render_pass_output.clone(), &mut dynamic_state);
-
-		// I'm not clear on what exactly this does, but it sounds important for freeing memory that's no longer needed
-		let previous_frame_end = Some(sync::now(device.clone()).boxed());
-
 		Self {
-			instance,
-			surface,
-			physical_device_index, device,
-			graphics_queue: queue,
-			swapchain, swapchain_images,
-
 			intermediate_image,
 			sampler_simple_nearest,
 			vertex_buffer_pool: vertex_buffer_pool_triangle,
@@ -261,7 +214,74 @@ impl Renderer {
 			descriptor_set_output,
 			dynamic_state,
 			framebuffer_main,
+		}
+	}
+}
+
+pub struct Renderer {
+	// TODO these shouldn't all be pub
+	instance: Arc<Instance>,
+
+	surface: Arc<Surface<Window>>,
+
+	// Rust *really* doesn't like it when we try to store the physical device directly.
+	// Wind up with a bunch of weird lifetime issues that I don't understand. :shrug:
+	// TODO Seta seemed to store the physical device directly; do it how he did it
+	physical_device_index: usize,
+	device: Arc<Device>,
+
+	graphics_queue: Arc<Queue>,
+
+	swapchain: Arc<Swapchain<Window>>,
+	swapchain_images: Vec<Arc<SwapchainImage<Window>>>,
+
+	data: RenderData,
+
+	framebuffers_output: Vec<Arc<dyn FramebufferAbstract + Send + Sync>>,
+
+	previous_frame_end: Option<Box<dyn GpuFuture>>,
+	// TODO `on_resize` method instead of this - we'll need to handle other things like scaling anyway
+	pub recreate_swapchain: bool,
+}
+
+impl Renderer {
+	pub fn init(events_loop: &EventLoop<()>) -> Self {
+		let instance = {
+			let extensions = vulkano_win::required_extensions();
+			Instance::new(None, &extensions, None)
+				.expect("Failed to create Vulkan instance.")
+		};
+		let physical = select_physical_device(&instance);
+		let physical_device_index = physical.index();
+
+		let surface = Self::create_window(&instance, &events_loop);
+
+		let (device, queue) = Self::get_device_and_queue(physical);
+
+		let (swapchain, swapchain_images) =
+			Self::create_swapchain(physical, &device, &surface, &queue);
+
+		let mut render_data = RenderData::init(&device, swapchain.format());
+
+		let framebuffers_output = Self::window_size_dependent_setup(
+			&swapchain_images, render_data.render_pass_output.clone(), &mut render_data.dynamic_state);
+
+		// I'm not clear on what exactly this does, but it sounds important for freeing memory that's no longer needed
+		let previous_frame_end = Some(sync::now(device.clone()).boxed());
+
+		Self {
+			instance,
+			surface,
+			physical_device_index,
+			device,
+			graphics_queue: queue,
+			swapchain,
+			swapchain_images,
+
+			data: render_data,
+
 			framebuffers_output,
+
 			previous_frame_end,
 			recreate_swapchain: false,
 		}
@@ -368,8 +388,8 @@ impl Renderer {
 		self.swapchain = new_swapchain;
 		self.framebuffers_output = Self::window_size_dependent_setup(
 			&new_images,
-			self.render_pass_output.clone(),
-			&mut self.dynamic_state,
+			self.data.render_pass_output.clone(),
+			&mut self.data.dynamic_state,
 		);
 		self.recreate_swapchain = false;
 	}
@@ -401,8 +421,8 @@ impl Renderer {
 		let (vert, ind) = frame.get_sprite_renderer().get_buffers();
 
 		// TODO don't unwrap these
-		let vert_buf = self.vertex_buffer_pool.chunk(vert.into_iter().cloned()).unwrap();
-		let ind_buf = self.index_buffer_pool.chunk(ind.into_iter().cloned()).unwrap();
+		let vert_buf = self.data.vertex_buffer_pool.chunk(vert.into_iter().cloned()).unwrap();
+		let ind_buf = self.data.index_buffer_pool.chunk(ind.into_iter().cloned()).unwrap();
 
 		let scale = cgmath::Matrix4::
 			from_nonuniform_scale(2.0/320.0, 2.0/180.0, 1.0);
@@ -429,10 +449,10 @@ impl Renderer {
 		).unwrap();
 
 		builder
-			.begin_render_pass(self.framebuffer_main.clone(), false, clear_values.clone())
+			.begin_render_pass(self.data.framebuffer_main.clone(), false, clear_values.clone())
 			.unwrap()
 			.draw_indexed(
-				self.pipeline_main.clone(),
+				self.data.pipeline_main.clone(),
 				&DynamicState::none(),
 				vec![Arc::new(vert_buf)],
 				ind_buf,
@@ -447,10 +467,10 @@ impl Renderer {
 			.begin_render_pass(self.framebuffers_output[image_num].clone(), false, clear_values)
 			.unwrap()
 			.draw(
-				self.pipeline_output.clone(),
-				&self.dynamic_state,
-				vec![self.vertex_buffer_square.clone()],
-				self.descriptor_set_output.clone(),
+				self.data.pipeline_output.clone(),
+				&self.data.dynamic_state,
+				vec![self.data.vertex_buffer_square.clone()],
+				self.data.descriptor_set_output.clone(),
 				push_constants
 			)
 			.unwrap()

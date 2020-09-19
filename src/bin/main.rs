@@ -11,10 +11,10 @@ fn main() {
 	let mut renderer = Renderer::init(&events_loop);
 	let mut game = Game::new();
 
-	// let mut timing = Timing::new();
+	// TODO why does CPU usage get maxed when target rate is 120?
 	let mut timer = LoopHelper::builder()
 		.report_interval_s(0.5)
-		.build_with_target_rate(120.0);
+		.build_with_target_rate(60.0);
 	let mut tick_timer = TickTiming::new(1.0/60.0);
 
 	let mut tick_count = 0_u32;
