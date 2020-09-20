@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use vulkano::buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer, TypedBufferAccess, CpuBufferPool};
-use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
+use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState, AutoCommandBuffer, CommandBufferExecFuture};
 use vulkano::descriptor::{DescriptorSet, PipelineLayoutAbstract};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::device::{Device, DeviceExtensions, Features, Queue};
@@ -12,14 +12,15 @@ use vulkano::instance::{Instance, PhysicalDevice};
 use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
 use vulkano::pipeline::viewport::Viewport;
 use vulkano::sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode};
-use vulkano::swapchain::{self, AcquireError, ColorSpace, FullscreenExclusive, PresentMode, Surface, SurfaceTransform, Swapchain, SwapchainCreationError};
-use vulkano::sync::{self, FlushError, GpuFuture};
+use vulkano::swapchain::{self, AcquireError, ColorSpace, FullscreenExclusive, PresentMode, Surface, SurfaceTransform, Swapchain, SwapchainCreationError, PresentFuture, SwapchainAcquireFuture};
+use vulkano::sync::{self, FlushError, GpuFuture, JoinFuture, FenceSignalFuture};
 use vulkano_win::VkSurfaceBuild;
 use winit::event_loop::EventLoop;
 use winit::window::{Window, WindowBuilder};
 
 use crate::render::vert::{Vertex2d, Vertex3d};
 use crate::render::display::FrameBuilder;
+use vulkano::command_buffer::pool::standard::StandardCommandPoolAlloc;
 
 pub const RESOLUTION: [u32; 2] = [320, 180];
 
@@ -219,7 +220,6 @@ impl RenderData {
 }
 
 pub struct Renderer {
-	// TODO these shouldn't all be pub
 	instance: Arc<Instance>,
 
 	surface: Arc<Surface<Window>>,
@@ -340,7 +340,8 @@ impl Renderer {
 			queue,
 			SurfaceTransform::Identity,
 			alpha,
-			PresentMode::Fifo,
+			// TODO actually have a setting for present mode somewhere instead of changing it here
+			PresentMode::Immediate,
 			FullscreenExclusive::Default,
 			true,
 			ColorSpace::SrgbNonLinear
@@ -394,28 +395,7 @@ impl Renderer {
 		self.recreate_swapchain = false;
 	}
 
-	pub fn draw_frame(&mut self, mut frame: FrameBuilder) {
-		// Free resources that are no longer needed? :shrug:
-		self.previous_frame_end.as_mut().unwrap().cleanup_finished();
-
-		if self.recreate_swapchain {
-			self.rebuild_swapchain();
-		}
-
-		let (image_num, suboptimal, acquire_future) =
-			match swapchain::acquire_next_image(self.swapchain.clone(), None) {
-				Ok(r) => r,
-				Err(AcquireError::OutOfDate) => {
-					self.recreate_swapchain = true;
-					return;
-				}
-				Err(e) => panic!("Failed to acquire next swapchain image: {:?}", e)
-			};
-
-		if suboptimal {
-			self.recreate_swapchain = true;
-		}
-
+	fn build_command_buffer(&mut self, mut frame: FrameBuilder, image_num: usize) -> AutoCommandBuffer<StandardCommandPoolAlloc> {
 		let time = frame.get_time();
 
 		let (vert, ind) = frame.get_sprite_renderer().get_buffers();
@@ -425,9 +405,9 @@ impl Renderer {
 		let ind_buf = self.data.index_buffer_pool.chunk(ind.into_iter().cloned()).unwrap();
 
 		let scale = cgmath::Matrix4::
-			from_nonuniform_scale(2.0/320.0, 2.0/180.0, 1.0);
+		from_nonuniform_scale(2.0/320.0, 2.0/180.0, 1.0);
 		let translation = cgmath::Matrix4::
-			from_translation(cgmath::Vector3::new(-1.0, -1.0, 0.0));
+		from_translation(cgmath::Vector3::new(-1.0, -1.0, 0.0));
 
 		let transformation_matrix = translation * scale;
 
@@ -463,6 +443,8 @@ impl Renderer {
 			.end_render_pass()
 			.unwrap();
 
+		// TODO we probably need a pipeline barrier or whatever it's called here?
+
 		builder
 			.begin_render_pass(self.framebuffers_output[image_num].clone(), false, clear_values)
 			.unwrap()
@@ -477,7 +459,32 @@ impl Renderer {
 			.end_render_pass()
 			.unwrap();
 
-		let command_buffer = builder.build().unwrap();
+		builder.build().unwrap()
+	}
+
+	pub fn draw_frame(&mut self, mut frame: FrameBuilder) {
+		// Free resources that are no longer needed? :shrug:
+		self.previous_frame_end.as_mut().unwrap().cleanup_finished();
+
+		if self.recreate_swapchain {
+			self.rebuild_swapchain();
+		}
+
+		let (image_num, suboptimal, acquire_future) =
+			match swapchain::acquire_next_image(self.swapchain.clone(), None) {
+				Ok(r) => r,
+				Err(AcquireError::OutOfDate) => {
+					self.recreate_swapchain = true;
+					return;
+				}
+				Err(e) => panic!("Failed to acquire next swapchain image: {:?}", e)
+			};
+
+		if suboptimal {
+			self.recreate_swapchain = true;
+		}
+
+		let command_buffer = self.build_command_buffer(frame, image_num);
 
 		let future = self.previous_frame_end
 			.take()
