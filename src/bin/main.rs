@@ -1,5 +1,5 @@
 use spin_sleep::LoopHelper;
-use winit::event::{Event, WindowEvent};
+use winit::event::{Event, WindowEvent, ElementState};
 use winit::event_loop::{ControlFlow, EventLoop};
 
 use vulkan_test::render::renderer::Renderer;
@@ -31,9 +31,25 @@ fn main() {
 			Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
 				*control_flow = ControlFlow::Exit;
 			},
-			Event::WindowEvent { event: WindowEvent::Resized(size), ..} => {
+			Event::WindowEvent { event: WindowEvent::Resized(size), .. } => {
 				println!("resized {:?}", size);
 				renderer.recreate_swapchain = true;
+			},
+			Event::WindowEvent { event: WindowEvent::KeyboardInput {input, .. }, .. } => {
+				println!("{:?}", input);
+				if let Some(key) = input.virtual_keycode {
+					match input.state {
+						ElementState::Pressed => {
+							game.input.buffer_keydown(key);
+						},
+						ElementState::Released => {
+							game.input.buffer_keyup(key);
+						}
+					}
+				} else {
+					// Uncomment this when the above println is gone
+					// println!("weird keyboard event without a virtual keycode:\n{:?}", input);
+				}
 			},
 			Event::RedrawEventsCleared => {},
 			Event::MainEventsCleared => {

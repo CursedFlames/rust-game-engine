@@ -21,6 +21,7 @@ use winit::window::{Window, WindowBuilder};
 use crate::render::vert::{Vertex2d, Vertex3d};
 use crate::render::display::FrameBuilder;
 use vulkano::command_buffer::pool::standard::StandardCommandPoolAlloc;
+use crate::render::camera::Camera;
 
 pub const RESOLUTION: [u32; 2] = [320, 180];
 
@@ -395,7 +396,8 @@ impl Renderer {
 		self.recreate_swapchain = false;
 	}
 
-	fn build_command_buffer(&mut self, mut frame: FrameBuilder, image_num: usize) -> AutoCommandBuffer<StandardCommandPoolAlloc> {
+	fn build_command_buffer(&mut self, mut frame: FrameBuilder, camera: &Camera, image_num: usize)
+			-> AutoCommandBuffer<StandardCommandPoolAlloc> {
 		let time = frame.get_time();
 
 		let (vert, ind) = frame.get_sprite_renderer().get_buffers();
@@ -404,12 +406,7 @@ impl Renderer {
 		let vert_buf = self.data.vertex_buffer_pool.chunk(vert.into_iter().cloned()).unwrap();
 		let ind_buf = self.data.index_buffer_pool.chunk(ind.into_iter().cloned()).unwrap();
 
-		let scale = cgmath::Matrix4::
-		from_nonuniform_scale(2.0/320.0, 2.0/180.0, 1.0);
-		let translation = cgmath::Matrix4::
-		from_translation(cgmath::Vector3::new(-1.0, -1.0, 0.0));
-
-		let transformation_matrix = translation * scale;
+		let transformation_matrix = camera.get_sprite_matrix();
 
 		let push_constants = shaders::vs::ty::PushConstants {
 			time,
@@ -462,7 +459,7 @@ impl Renderer {
 		builder.build().unwrap()
 	}
 
-	pub fn draw_frame(&mut self, mut frame: FrameBuilder) {
+	pub fn draw_frame(&mut self, mut frame: FrameBuilder, camera: &Camera) {
 		// Free resources that are no longer needed? :shrug:
 		self.previous_frame_end.as_mut().unwrap().cleanup_finished();
 
@@ -484,7 +481,7 @@ impl Renderer {
 			self.recreate_swapchain = true;
 		}
 
-		let command_buffer = self.build_command_buffer(frame, image_num);
+		let command_buffer = self.build_command_buffer(frame, camera, image_num);
 
 		let future = self.previous_frame_end
 			.take()

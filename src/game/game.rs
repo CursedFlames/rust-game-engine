@@ -1,6 +1,9 @@
 use hecs::World;
 use crate::render::display::{DisplayElementSquare, FrameBuilder, DisplayElement, DisplayElementComponent};
 use crate::render::renderer::Renderer;
+use crate::render::camera::Camera;
+use crate::util::input::InputMap;
+use winit::event::VirtualKeyCode;
 
 pub struct Pos {
 	pub x: i32,
@@ -14,10 +17,14 @@ struct Vel {
 
 pub struct Game {
 	level: World,
+	pub camera: Camera, // TODO make this one non-public once we're doing inputs in a non-jank way
+	pub input: InputMap, // TODO probably same for this and add methods on Game to pass through inputs?
 }
 
 impl Game {
 	pub fn new() -> Self {
+		let mut camera = Camera::new();
+		let mut input = InputMap::new();
 		let mut level = World::new();
 		level.spawn_batch(
 			(0..10)
@@ -27,8 +34,17 @@ impl Game {
 						Vel { vx: 1, vy: 1},
 					)
 				));
+		level.spawn_batch(
+			(0..4)
+				.map(|i|
+					(Pos {x: (i%2)*312, y: (i/2)*172},
+					 DisplayElementComponent(Box::new(DisplayElementSquare{})),
+					)
+				));
 		Game {
 			level,
+			camera,
+			input,
 		}
 	}
 
@@ -36,6 +52,25 @@ impl Game {
 		if tick_count % 60 == 0 {
 			println!("Game tick!");
 		}
+		self.input.begin_tick();
+
+		// Temporary camera movement code
+		let speed = if self.input.get_key_pressed(VirtualKeyCode::LShift) { 0.5 } else { 4.0 };
+		let in_x = {
+			let mut i = 0.0;
+			if self.input.get_key_pressed(VirtualKeyCode::A) { i -= 1.0 };
+			if self.input.get_key_pressed(VirtualKeyCode::D) { i += 1.0 };
+			i
+		};
+		let in_y = {
+			let mut i = 0.0;
+			if self.input.get_key_pressed(VirtualKeyCode::S) { i -= 1.0 };
+			if self.input.get_key_pressed(VirtualKeyCode::W) { i += 1.0 };
+			i
+		};
+		self.camera.pos.x += in_x * speed;
+		self.camera.pos.y += in_y * speed;
+
 		let mut query = self.level.query::<(&mut Pos, &mut Vel)>();
 		for (id, (pos, vel)) in query.iter() {
 			pos.x += vel.vx;
@@ -53,6 +88,8 @@ impl Game {
 				vel.vy *= -1;
 			}
 		}
+
+		self.input.end_tick();
 	}
 
 	pub fn draw_frame(&self, renderer: &mut Renderer, tick_count: u32, partial_ticks: f32, time: f32) {
@@ -62,6 +99,6 @@ impl Game {
 		for (id, (pos, display)) in query.iter() {
 			display.0.draw(sprite_renderer, pos);
 		}
-		renderer.draw_frame(frame);
+		renderer.draw_frame(frame, &self.camera);
 	}
 }
