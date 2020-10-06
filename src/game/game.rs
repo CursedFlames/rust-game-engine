@@ -5,6 +5,9 @@ use crate::render::camera::Camera;
 use crate::util::input::InputMap;
 use winit::event::VirtualKeyCode;
 
+use crate::game::physics;
+use crate::game::physics::{PhysicsActorComponent, DebugPhysicsActor, PhysicsActor};
+
 pub struct Pos {
 	pub x: i32,
 	pub y: i32,
@@ -29,18 +32,24 @@ impl Game {
 		level.spawn_batch(
 			(0..10)
 				.map(|i|
-					(Pos {x: i*20, y: (i*70)%170},
+					(
+						Pos {x: i*20, y: (i*70)%170},
 						DisplayElementComponent(Box::new(DisplayElementSquare{})),
 						Vel { vx: 1, vy: 1},
 					)
 				));
-		level.spawn_batch(
-			(0..4)
-				.map(|i|
-					(Pos {x: (i%2)*312, y: (i/2)*172},
-					 DisplayElementComponent(Box::new(DisplayElementSquare{})),
-					)
-				));
+		// level.spawn_batch(
+		// 	(0..4)
+		// 		.map(|i|
+		// 			(
+		// 				Pos {x: (i%2)*312, y: (i/2)*172},
+		// 				DisplayElementComponent(Box::new(DisplayElementSquare{})),
+		// 			)
+		// 		));
+		level.spawn((
+				DisplayElementComponent(Box::new(DisplayElementSquare{})),
+				PhysicsActorComponent(Box::new(DebugPhysicsActor{x:0,y:0})),
+			));
 		Game {
 			level,
 			camera,
@@ -71,6 +80,8 @@ impl Game {
 		self.camera.pos.x += in_x * speed;
 		self.camera.pos.y += in_y * speed;
 
+		physics::tick_physics(&mut self.level);
+
 		let mut query = self.level.query::<(&mut Pos, &mut Vel)>();
 		for (id, (pos, vel)) in query.iter() {
 			pos.x += vel.vx;
@@ -98,6 +109,10 @@ impl Game {
 		let mut query = self.level.query::<(&Pos, & DisplayElementComponent)>();
 		for (id, (pos, display)) in query.iter() {
 			display.0.draw(sprite_renderer, pos);
+		}
+		let mut query = self.level.query::<(&PhysicsActorComponent, &DisplayElementComponent)>();
+		for (id, (pos, display)) in query.iter() {
+			display.0.draw(sprite_renderer, &Pos {x: pos.0.x(), y: pos.0.y()});
 		}
 		renderer.draw_frame(frame, &self.camera);
 	}
