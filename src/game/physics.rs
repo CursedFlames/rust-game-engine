@@ -1,23 +1,31 @@
 use hecs::{World, Entity};
+use crate::util::aabb::Aabb;
+use crate::util::aabb::layer::CollisionLayers;
 
-
-pub trait PhysicsActor {
+pub trait PhysicsElem {
 	fn x(&self) -> i32;
 	fn y(&self) -> i32;
 	fn get_move_x(&self) -> i32;
 	fn get_move_y(&self) -> i32;
 	fn apply_move(&mut self, x: i32, y: i32);
+
+	fn get_base_aabb(&self) -> Aabb;
+	fn get_aabb(&self) -> Aabb;
+
+	fn get_collision_layers(&self) -> CollisionLayers;
 }
 
-pub trait PhysicsSolid {
-	fn mov(&mut self, x: f64, y: f64);
+pub trait PhysicsActor : PhysicsElem {
+}
+
+pub trait PhysicsSolid : PhysicsElem {
 }
 
 pub struct DebugPhysicsActor {
 	pub x: i32, pub y: i32
 }
 
-impl PhysicsActor for DebugPhysicsActor {
+impl PhysicsElem for DebugPhysicsActor {
 	fn x(&self) -> i32 {self.x}
 	fn y(&self) -> i32 {self.y}
 	fn get_move_x(&self) -> i32 {
@@ -30,14 +38,45 @@ impl PhysicsActor for DebugPhysicsActor {
 		self.x += x;
 		self.y += y;
 	}
-}
 
-pub struct PhysicsActorComponent(pub Box<dyn PhysicsActor + Send + Sync>);
-pub struct PhysicsSolidComponent(pub Box<dyn PhysicsSolid + Send + Sync>);
+	fn get_base_aabb(&self) -> Aabb {
+		Aabb::from_width_height(8, 8)
+	}
+	fn get_aabb(&self) -> Aabb {
+		Aabb::from_pos_width_height(self.x, self.y, 8, 8)
+	}
+
+	fn get_collision_layers(&self) -> CollisionLayers {
+		u32::MAX
+	}
+}
+impl PhysicsActor for DebugPhysicsActor {}
+
+// pub struct PhysicsActorComponent(pub Box<dyn PhysicsActor + Send + Sync>);
+// pub struct PhysicsSolidComponent(pub Box<dyn PhysicsSolid + Send + Sync>);
 // TODO do these work as type aliases instead of tuple structs?
 //      couldn't get it to work when I tried
-// pub type PhysicsActorComponent = Box<dyn PhysicsActor + Send + Sync>;
-// pub type PhysicsSolidComponent = Box<dyn PhysicsSolid + Send + Sync>;
+pub type PhysicsActorComponent = Box<dyn PhysicsActor + Send + Sync>;
+pub type PhysicsSolidComponent = Box<dyn PhysicsSolid + Send + Sync>;
+
+fn collisions(aabb: Aabb, layers: CollisionLayers, solids: &Vec<(Entity, &mut PhysicsSolidComponent)>)
+		-> Vec<Aabb> {
+	// TODO maybe we want some sort of should_collide(solid, actor) for finer control?
+	let mut collisions = Vec::new();
+	if layers == 0 {
+		return collisions
+	}
+	for (_, solid) in solids.iter() {
+		if (solid.get_collision_layers() & layers) != 0 {
+			let aabb2 = solid.get_aabb();
+			if aabb.intersects(aabb2) {
+				collisions.push(aabb2);
+			}
+		}
+	}
+	// TODO might want to also return CollisionLayers, or maybe the entire Solid
+	collisions
+}
 
 fn tick_solids(solids: &mut Vec<(Entity, &mut PhysicsSolidComponent)>,
 		actors: &mut Vec<(Entity, &mut PhysicsActorComponent)>) {
@@ -47,13 +86,33 @@ fn tick_solids(solids: &mut Vec<(Entity, &mut PhysicsSolidComponent)>,
 fn tick_actors(solids: &Vec<(Entity, &mut PhysicsSolidComponent)>,
 		actors: &mut Vec<(Entity, &mut PhysicsActorComponent)>) {
 	for (_, ref mut actor) in actors.iter_mut() {
+		let collision_layers = actor.get_collision_layers();
+		// TODO optimize out collision checks if layers is 0?
 		// get movement
 		// get expanded AABB
 		// do collision checks
 		// move as much as possible
-		let actor = &mut actor.0;
 		let dx = actor.get_move_x();
-		actor.apply_move(dx, 0);
+		let start_pos = actor.get_aabb();
+		let end_pos = start_pos.offset(dx, 0);
+		let aabb = Aabb::union(start_pos, end_pos);
+		let intersects = collisions(aabb, collision_layers, solids);
+		if !intersects.is_empty() {
+			// TODO some functionality to squish around corners?
+			let mut offset: i32 = 0;
+			'outer: while offset.abs() < dx.abs() {
+				let aabb = start_pos.offset(offset+1, 0);
+				for aabb2 in intersects.iter() {
+					if aabb.intersects(*aabb2) {
+						break 'outer;
+					}
+				}
+				offset += 1;
+			}
+			actor.apply_move(offset, 0);
+		} else {
+			actor.apply_move(dx, 0);
+		}
 		let dy = actor.get_move_y();
 		actor.apply_move(0, dy);
 	}

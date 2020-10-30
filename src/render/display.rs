@@ -3,7 +3,7 @@ use crate::render::vert::Vertex3d;
 use vulkano::buffer::CpuAccessibleBuffer;
 use crate::game::Pos;
 
-pub struct DisplayElementComponent(pub Box<dyn DisplayElement + Send + Sync>);
+pub type DisplayElementComponent = Box<dyn DisplayElement + Send + Sync>;
 
 pub trait DisplayElement {
 	fn draw(&self, renderer: &mut SpriteRenderer, pos: &Pos) -> ();

@@ -34,7 +34,7 @@ impl Game {
 				.map(|i|
 					(
 						Pos {x: i*20, y: (i*70)%170},
-						DisplayElementComponent(Box::new(DisplayElementSquare{})),
+						DisplayElementComponent::from(Box::new(DisplayElementSquare{})),
 						Vel { vx: 1, vy: 1},
 					)
 				));
@@ -47,8 +47,8 @@ impl Game {
 		// 			)
 		// 		));
 		level.spawn((
-				DisplayElementComponent(Box::new(DisplayElementSquare{})),
-				PhysicsActorComponent(Box::new(DebugPhysicsActor{x:0,y:0})),
+				DisplayElementComponent::from(Box::new(DisplayElementSquare{})),
+				PhysicsActorComponent::from(Box::new(DebugPhysicsActor{x:0,y:0})),
 			));
 		Game {
 			level,
@@ -108,11 +108,11 @@ impl Game {
 		let sprite_renderer = frame.get_sprite_renderer();
 		let mut query = self.level.query::<(&Pos, & DisplayElementComponent)>();
 		for (id, (pos, display)) in query.iter() {
-			display.0.draw(sprite_renderer, pos);
+			display.draw(sprite_renderer, pos);
 		}
 		let mut query = self.level.query::<(&PhysicsActorComponent, &DisplayElementComponent)>();
 		for (id, (pos, display)) in query.iter() {
-			display.0.draw(sprite_renderer, &Pos {x: pos.0.x(), y: pos.0.y()});
+			display.draw(sprite_renderer, &Pos {x: pos.x(), y: pos.y()});
 		}
 		renderer.draw_frame(frame, &self.camera);
 	}
