@@ -2,16 +2,20 @@ use std::cmp::{min, max};
 
 #[derive(Clone, Copy)]
 pub struct Aabb {
+	/// Min x, inclusive
 	pub x1: i32,
+	/// Min y, inclusive
 	pub y1: i32,
+	/// Max x, inclusive
 	pub x2: i32,
+	/// Max y, inclusive
 	pub y2: i32
 }
 
 impl Aabb {
 	pub fn from_width_height(width: i32, height: i32) -> Self {
 		// Empty AABBs are undefined behavior
-		assert!(width > 0 && height > 0);
+		debug_assert!(width > 0 && height > 0);
 		Aabb {
 			x1: 0,
 			y1: 0,
@@ -22,7 +26,7 @@ impl Aabb {
 
 	pub fn from_pos_width_height(x: i32, y: i32, width: i32, height: i32) -> Self {
 		// Empty AABBs are undefined behavior
-		assert!(width > 0 && height > 0);
+		debug_assert!(width > 0 && height > 0);
 		Aabb {
 			x1: x,
 			y1: y,
@@ -30,6 +34,8 @@ impl Aabb {
 			y2: y + height-1
 		}
 	}
+
+	// TODO debug asserts on the rest of these methods
 
 	pub fn offset4(&self, x1: i32, y1: i32, x2: i32, y2: i32) -> Self {
 		Aabb {
@@ -64,6 +70,8 @@ impl Aabb {
 			&& self.y1 <= other.y2
 	}
 }
+
+// TODO tests?
 
 // These probably shouldn't be here but whatever
 pub mod layer {

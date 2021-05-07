@@ -52,10 +52,6 @@ impl PhysicsElem for DebugPhysicsActor {
 }
 impl PhysicsActor for DebugPhysicsActor {}
 
-// pub struct PhysicsActorComponent(pub Box<dyn PhysicsActor + Send + Sync>);
-// pub struct PhysicsSolidComponent(pub Box<dyn PhysicsSolid + Send + Sync>);
-// TODO do these work as type aliases instead of tuple structs?
-//      couldn't get it to work when I tried
 pub type PhysicsActorComponent = Box<dyn PhysicsActor + Send + Sync>;
 pub type PhysicsSolidComponent = Box<dyn PhysicsSolid + Send + Sync>;
 
