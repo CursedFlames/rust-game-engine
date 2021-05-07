@@ -58,9 +58,6 @@ impl Game {
 	}
 
 	pub fn tick(&mut self, tick_count: u32) {
-		if tick_count % 60 == 0 {
-			println!("Game tick!");
-		}
 		self.input.begin_tick();
 
 		// Temporary camera movement code

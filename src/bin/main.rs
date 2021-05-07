@@ -14,7 +14,7 @@ fn main() {
 	// TODO why does CPU usage get maxed when using FIFO present mode and target rate is above monitor FPS?
 	let mut timer = LoopHelper::builder()
 		.report_interval_s(0.5)
-		.build_with_target_rate(120.0);
+		.build_with_target_rate(60.0);
 	let mut tick_timer = TickTiming::new(1.0/60.0);
 
 	let mut tick_count = 0_u32;
@@ -53,8 +53,6 @@ fn main() {
 			},
 			Event::RedrawEventsCleared => {},
 			Event::MainEventsCleared => {
-				timer.loop_sleep();
-
 				let delta = timer.loop_start();
 				tick_timer.add_delta(delta);
 
@@ -65,14 +63,12 @@ fn main() {
 				}
 
 				while tick_timer.try_consume_tick() {
-					if tick_count % 60 == 0 {
-						println!("tick {}", tick_count);
-					}
 					game.tick(tick_count);
 					tick_count += 1;
 				}
 
 				game.draw_frame(&mut renderer, tick_count, tick_timer.get_partial_ticks() as f32, time as f32);
+				// timer.loop_sleep();
 			},
 			_ => ()
 		}

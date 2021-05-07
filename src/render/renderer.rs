@@ -342,7 +342,7 @@ impl Renderer {
 			SurfaceTransform::Identity,
 			alpha,
 			// TODO actually have a setting for present mode somewhere instead of changing it here
-			PresentMode::Immediate,
+			PresentMode::Fifo,
 			FullscreenExclusive::Default,
 			true,
 			ColorSpace::SrgbNonLinear
