@@ -1,5 +1,5 @@
 use vulkano::buffer::cpu_access::WriteLock;
-use crate::render::vert::Vertex3d;
+use crate::render::vert::{Vertex3d, VertexSprite};
 use vulkano::buffer::CpuAccessibleBuffer;
 use crate::game::Pos;
 
@@ -40,7 +40,7 @@ impl FrameBuilder {
 
 // SpriteCollector or smth might be a better name? It's instantiated every frame...
 pub struct SpriteRenderer {
-	vertices: Vec<Vertex3d>,
+	vertices: Vec<VertexSprite>,
 	indices: Vec<u32>,
 }
 
@@ -52,16 +52,16 @@ impl SpriteRenderer {
 		}
 	}
 
-	/// Draw an 8x8 square. For testing until actual rendering stuff is implemented.
+	/// Draw a 40x40 square. For testing until actual rendering stuff is implemented.
 	pub fn draw_test_square(&mut self, x: i32, y: i32) {
 		let x = x as f32;
 		let y = y as f32;
 		let offset = self.vertices.len() as u32;
 		self.vertices.extend(vec![
-			Vertex3d {position: [x, y, 0.0]},
-			Vertex3d {position: [x+8.0, y, 0.0]},
-			Vertex3d {position: [x, y+8.0, 0.0]},
-			Vertex3d {position: [x+8.0, y+8.0, 0.0]},
+			VertexSprite {position: [x, y, 0.0], uv: [0.0, 1.0]},
+			VertexSprite {position: [x+40.0, y, 0.0], uv: [1.0, 1.0]},
+			VertexSprite {position: [x, y+40.0, 0.0], uv: [0.0, 0.0]},
+			VertexSprite {position: [x+40.0, y+40.0, 0.0], uv: [1.0, 0.0]},
 		].into_iter());
 		// 0 1 2 2 1 3
 		self.indices.extend([
@@ -74,7 +74,7 @@ impl SpriteRenderer {
 		].iter());
 	}
 
-	pub fn get_buffers(&self) -> (&Vec<Vertex3d>, &Vec<u32>) {
+	pub fn get_buffers(&self) -> (&Vec<VertexSprite>, &Vec<u32>) {
 		(&self.vertices, &self.indices)
 	}
 }

@@ -1,27 +1,28 @@
 use std::sync::Arc;
 
-use vulkano::buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer, TypedBufferAccess, CpuBufferPool};
-use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState, AutoCommandBuffer, CommandBufferExecFuture};
+use vulkano::buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer, CpuBufferPool, TypedBufferAccess};
+use vulkano::command_buffer::{AutoCommandBuffer, AutoCommandBufferBuilder, CommandBufferExecFuture, DynamicState};
+use vulkano::command_buffer::pool::standard::StandardCommandPoolAlloc;
 use vulkano::descriptor::{DescriptorSet, PipelineLayoutAbstract};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::device::{Device, DeviceExtensions, Features, Queue};
 use vulkano::format::Format;
 use vulkano::framebuffer::{Framebuffer, FramebufferAbstract, RenderPass, RenderPassAbstract, Subpass};
-use vulkano::image::{AttachmentImage, ImageUsage, SwapchainImage};
+use vulkano::image::{AttachmentImage, Dimensions, ImageUsage, ImmutableImage, SwapchainImage};
 use vulkano::instance::{Instance, PhysicalDevice};
 use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
 use vulkano::pipeline::viewport::Viewport;
 use vulkano::sampler::{Filter, MipmapMode, Sampler, SamplerAddressMode};
-use vulkano::swapchain::{self, AcquireError, ColorSpace, FullscreenExclusive, PresentMode, Surface, SurfaceTransform, Swapchain, SwapchainCreationError, PresentFuture, SwapchainAcquireFuture};
-use vulkano::sync::{self, FlushError, GpuFuture, JoinFuture, FenceSignalFuture};
+use vulkano::swapchain::{self, AcquireError, ColorSpace, FullscreenExclusive, PresentFuture, PresentMode, Surface, SurfaceTransform, Swapchain, SwapchainAcquireFuture, SwapchainCreationError};
+use vulkano::sync::{self, FenceSignalFuture, FlushError, GpuFuture, JoinFuture};
 use vulkano_win::VkSurfaceBuild;
 use winit::event_loop::EventLoop;
 use winit::window::{Window, WindowBuilder};
 
-use crate::render::vert::{Vertex2d, Vertex3d};
-use crate::render::display::FrameBuilder;
-use vulkano::command_buffer::pool::standard::StandardCommandPoolAlloc;
+use crate::asset_loading::texture::load_texture;
 use crate::render::camera::Camera;
+use crate::render::display::FrameBuilder;
+use crate::render::vert::{Vertex2d, Vertex3d, VertexSprite};
 
 pub const RESOLUTION: [u32; 2] = [320, 180];
 
@@ -45,14 +46,16 @@ fn select_physical_device(instance: &Arc<Instance>) -> PhysicalDevice {
 // Contains all the various things used in the actual rendering process
 // (as opposed to Renderer, which just has devices and queues and the swapchain and such)
 struct RenderData {
+	sprites_image: Arc<ImmutableImage<Format>>,
 	intermediate_image: Arc<AttachmentImage>,
 	sampler_simple_nearest: Arc<Sampler>,
-	vertex_buffer_pool: CpuBufferPool<Vertex3d>,
+	vertex_buffer_pool: CpuBufferPool<VertexSprite>,
 	index_buffer_pool: CpuBufferPool<u32>,
 	vertex_buffer_square: Arc<dyn BufferAccess + Send + Sync>,
 	render_pass_main: Arc<dyn RenderPassAbstract + Send + Sync>,
 	render_pass_output: Arc<dyn RenderPassAbstract + Send + Sync>,
 	pipeline_main: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
+	descriptor_set_main: Arc<dyn DescriptorSet + Send + Sync>,
 	pipeline_output: Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
 	descriptor_set_output: Arc<dyn DescriptorSet + Send + Sync>,
 	dynamic_state: DynamicState,
@@ -60,7 +63,13 @@ struct RenderData {
 }
 
 impl RenderData {
-	fn init(device: &Arc<Device>, swapchain_format: Format) -> Self {
+	fn init(device: &Arc<Device>, swapchain_format: Format, queue: &Arc<Queue>) -> Self {
+		let data = load_texture("assets/test.png".to_owned(), true);
+		let (texture, texture_future) = ImmutableImage::from_iter(data.bytes.into_iter(), Dimensions::Dim2d { width: data.size.0, height: data.size.1 }, data.format, queue.clone()).unwrap();
+		// this future gets dropped at the end of the method, causing CPU execution to wait for loading to complete
+		// TODO actually do texture loading properly
+		texture_future.flush();
+
 		let intermediate_image = AttachmentImage::with_usage(
 			device.clone(),
 			RESOLUTION,
@@ -155,7 +164,7 @@ impl RenderData {
 
 		let pipeline_main = Arc::new(
 			GraphicsPipeline::start()
-				.vertex_input_single_buffer::<Vertex3d>()
+				.vertex_input_single_buffer::<VertexSprite>()
 				.vertex_shader(vs.main_entry_point(), ())
 				.triangle_list()
 				.viewports(vec![Viewport {
@@ -167,6 +176,17 @@ impl RenderData {
 				.render_pass(Subpass::from(render_pass_main.clone(), 0).unwrap())
 				.build(device.clone())
 				.unwrap()
+		);
+
+		let layout = pipeline_main.layout().descriptor_set_layout(0).expect("Failed to get set layout");
+
+		// Doing this here is janky and will not work for changeable descriptor sets.
+		let descriptor_set_main = Arc::new(
+			PersistentDescriptorSet::start(layout.clone())
+				.add_sampled_image(texture.clone(), sampler_simple_nearest.clone())
+				.expect("Failed to add sampled image")
+				.build()
+				.expect("Failed to build descriptor set"),
 		);
 
 		let pipeline_output = Arc::new(
@@ -204,6 +224,7 @@ impl RenderData {
 		);
 
 		Self {
+			sprites_image: texture,
 			intermediate_image,
 			sampler_simple_nearest,
 			vertex_buffer_pool: vertex_buffer_pool_triangle,
@@ -212,6 +233,7 @@ impl RenderData {
 			render_pass_main,
 			render_pass_output,
 			pipeline_main,
+			descriptor_set_main,
 			pipeline_output,
 			descriptor_set_output,
 			dynamic_state,
@@ -262,7 +284,7 @@ impl Renderer {
 		let (swapchain, swapchain_images) =
 			Self::create_swapchain(physical, &device, &surface, &queue);
 
-		let mut render_data = RenderData::init(&device, swapchain.format());
+		let mut render_data = RenderData::init(&device, swapchain.format(), &queue);
 
 		let framebuffers_output = Self::window_size_dependent_setup(
 			&swapchain_images, render_data.render_pass_output.clone(), &mut render_data.dynamic_state);
@@ -324,8 +346,10 @@ impl Renderer {
 		//      Seems to normally be opaque, but shouldn't rely on that.
 		let alpha = caps.supported_composite_alpha.iter().next().unwrap();
 		println!("Using alpha mode {:?}", alpha);
-		// TODO formats?
-		let format = caps.supported_formats[0].0;
+		println!("Available formats: {:?}", caps.supported_formats);
+		// let format = caps.supported_formats.iter().filter(|format| format.1 == ColorSpace::SrgbNonLinear).next().unwrap_or(&caps.supported_formats[0]);
+		// TODO actually sort formats properly and pick the most appropriate one instead of relying on this being available
+		let format = (Format::B8G8R8A8Srgb, ColorSpace::SrgbNonLinear);
 		println!("Using format {:?}", format);
 
 		let dimensions: [u32; 2] = surface.window().inner_size().into();
@@ -334,7 +358,7 @@ impl Renderer {
 			device.clone(),
 			surface.clone(),
 			caps.min_image_count,
-			format,
+			format.0,
 			dimensions,
 			1,
 			ImageUsage::color_attachment(),
@@ -345,7 +369,7 @@ impl Renderer {
 			PresentMode::Fifo,
 			FullscreenExclusive::Default,
 			true,
-			ColorSpace::SrgbNonLinear
+			format.1
 		).unwrap()
 	}
 
@@ -433,14 +457,12 @@ impl Renderer {
 				&DynamicState::none(),
 				vec![Arc::new(vert_buf)],
 				ind_buf,
-				(),
+				self.data.descriptor_set_main.clone(),
 				push_constants
 			)
 			.unwrap()
 			.end_render_pass()
 			.unwrap();
-
-		// TODO we probably need a pipeline barrier or whatever it's called here?
 
 		builder
 			.begin_render_pass(self.framebuffers_output[image_num].clone(), false, clear_values)

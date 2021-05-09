@@ -4,6 +4,8 @@ pub mod vs {
 		src: "\
 #version 450
 layout(location = 0) in vec3 position;
+layout(location = 1) in vec2 uv;
+// layout(location = 2) in ivec4 tint;
 
 layout(location = 0) out vec2 fragTexCoord;
 layout(location = 1) out vec3 color;
@@ -18,7 +20,7 @@ void main() {
 	vec4 pos4 = vec4(position.xyz, 1.0);
 	vec4 transformed_pos = pushConstants.transform*pos4;
 	gl_Position = transformed_pos;
-	fragTexCoord = position.xy;
+	fragTexCoord = uv;
 	color = vec3(transformed_pos.xy, 1.0-(transformed_pos.x + transformed_pos.y)/2.0);
 }"
 	}
@@ -54,9 +56,11 @@ layout(push_constant) uniform PushConstants {
 	float time;
 } pushConstants;
 
+layout(binding = 0) uniform sampler2D texSampler;
+
 void main() {
 	// f_color = vec4(sin(pushConstants.time/4.0), 0.25, 1.0, 1.0);
-	f_color = vec4(color, 1.0);
+	f_color = texture(texSampler, fragTexCoord);
 }"
 	}
 }

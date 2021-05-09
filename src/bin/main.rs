@@ -68,7 +68,7 @@ fn main() {
 				}
 
 				game.draw_frame(&mut renderer, tick_count, tick_timer.get_partial_ticks() as f32, time as f32);
-				// timer.loop_sleep();
+				timer.loop_sleep();
 			},
 			_ => ()
 		}
