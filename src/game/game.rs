@@ -1,12 +1,13 @@
 use hecs::World;
-use crate::render::display::{DisplayElementSquare, FrameBuilder, DisplayElement, DisplayElementComponent};
-use crate::render::renderer2::Renderer;
-use crate::render::camera::Camera;
-use crate::util::input::InputMap;
+use log::*;
 use winit::event::VirtualKeyCode;
 
 use crate::game::physics;
-use crate::game::physics::{PhysicsActorComponent, DebugPhysicsActor, PhysicsActor};
+use crate::game::physics::{DebugPhysicsActor, PhysicsActorComponent};
+use crate::render::camera::Camera;
+use crate::render::display::{DisplayElementComponent, DisplayElementSquare, FrameBuilder};
+use crate::render::renderer2::Renderer;
+use crate::util::input::InputMap;
 
 pub struct Pos {
 	pub x: i32,
@@ -26,8 +27,8 @@ pub struct Game {
 
 impl Game {
 	pub fn new() -> Self {
-		let mut camera = Camera::new();
-		let mut input = InputMap::new();
+		let camera = Camera::new();
+		let input = InputMap::new();
 		let mut level = World::new();
 		level.spawn_batch(
 			(0..10)
@@ -57,7 +58,7 @@ impl Game {
 		}
 	}
 
-	pub fn tick(&mut self, tick_count: u32) {
+	pub fn tick(&mut self, _tick_count: u32) {
 		self.input.begin_tick();
 
 		// Temporary camera movement code
@@ -80,7 +81,7 @@ impl Game {
 		physics::tick_physics(&mut self.level);
 
 		let mut query = self.level.query::<(&mut Pos, &mut Vel)>();
-		for (id, (pos, vel)) in query.iter() {
+		for (_id, (pos, vel)) in query.iter() {
 			pos.x += vel.vx;
 			pos.y += vel.vy;
 			if pos.x < 0 && vel.vx < 0 {
@@ -100,17 +101,19 @@ impl Game {
 		self.input.end_tick();
 	}
 
-	pub fn draw_frame(&self, renderer: &mut Renderer, tick_count: u32, partial_ticks: f32, time: f32) {
+	pub fn draw_frame(&self, renderer: &mut Renderer, _tick_count: u32, _partial_ticks: f32, time: f32) {
 		let mut frame = FrameBuilder::new(time);
 		let sprite_renderer = frame.get_sprite_renderer();
-		let mut query = self.level.query::<(&Pos, & DisplayElementComponent)>();
-		for (id, (pos, display)) in query.iter() {
+		let mut query = self.level.query::<(&Pos, &DisplayElementComponent)>();
+		for (_id, (pos, display)) in query.iter() {
 			display.draw(sprite_renderer, pos);
 		}
 		let mut query = self.level.query::<(&PhysicsActorComponent, &DisplayElementComponent)>();
-		for (id, (pos, display)) in query.iter() {
+		for (_id, (pos, display)) in query.iter() {
 			display.draw(sprite_renderer, &Pos {x: pos.x(), y: pos.y()});
 		}
-		renderer.draw_frame(frame, &self.camera);
+		if let Err(err) = renderer.draw_frame(frame, &self.camera) {
+			warn!("Error while drawing frame: {}", err);
+		}
 	}
 }

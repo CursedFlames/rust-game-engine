@@ -135,5 +135,4 @@ pub fn tick_physics(level: &mut World) {
 	let mut actors = actors_query.iter().collect::<Vec<_>>();
 	tick_solids(&mut solids, &mut actors);
 	tick_actors(&solids, &mut actors);
-
 }

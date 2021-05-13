@@ -1,4 +1,4 @@
-use crate::render::vert::{Vertex3d, VertexSprite};
+use crate::render::vert::VertexSprite;
 use crate::game::Pos;
 
 pub type DisplayElementComponent = Box<dyn DisplayElement + Send + Sync>;

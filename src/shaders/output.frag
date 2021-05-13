@@ -15,4 +15,3 @@ void main() {
 	f_color = texture(sampler2D(t_1, s_1), fragTexCoord);
 //	f_color = vec4(1.0-fragTexCoord.x, fragTexCoord.x, 0.0, 1.0);
 }
-//

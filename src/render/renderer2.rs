@@ -113,7 +113,7 @@ impl Renderer {
 
 		let shaders = Renderer::load_shaders(&device);
 
-		let mut uniforms = Uniforms::new();
+		let uniforms = Uniforms::new();
 
 		let uniform_buffer = device.create_buffer_init(
 			&util::BufferInitDescriptor {
