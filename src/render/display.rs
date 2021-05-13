@@ -1,6 +1,4 @@
-use vulkano::buffer::cpu_access::WriteLock;
 use crate::render::vert::{Vertex3d, VertexSprite};
-use vulkano::buffer::CpuAccessibleBuffer;
 use crate::game::Pos;
 
 pub type DisplayElementComponent = Box<dyn DisplayElement + Send + Sync>;

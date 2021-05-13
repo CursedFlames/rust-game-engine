@@ -1,6 +1,6 @@
 use hecs::World;
 use crate::render::display::{DisplayElementSquare, FrameBuilder, DisplayElement, DisplayElementComponent};
-use crate::render::renderer::Renderer;
+use crate::render::renderer2::Renderer;
 use crate::render::camera::Camera;
 use crate::util::input::InputMap;
 use winit::event::VirtualKeyCode;

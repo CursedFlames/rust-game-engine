@@ -2,19 +2,22 @@ use spin_sleep::LoopHelper;
 use winit::event::{Event, WindowEvent, ElementState};
 use winit::event_loop::{ControlFlow, EventLoop};
 
-use vulkan_test::render::renderer::Renderer;
-use vulkan_test::util::timing::TickTiming;
-use vulkan_test::game::Game;
+use rust_game_engine::util::timing::TickTiming;
+use rust_game_engine::game::Game;
+use rust_game_engine::render::renderer2::Renderer;
+use futures::executor::block_on;
 
 fn main() {
+	env_logger::init();
 	let events_loop = EventLoop::new();
-	let mut renderer = Renderer::init(&events_loop);
+	// let mut renderer = Renderer::init(&events_loop);
+	let mut renderer = block_on(Renderer::new(&events_loop));
 	let mut game = Game::new();
 
 	// TODO why does CPU usage get maxed when using FIFO present mode and target rate is above monitor FPS?
 	let mut timer = LoopHelper::builder()
 		.report_interval_s(0.5)
-		.build_with_target_rate(60.0);
+		.build_with_target_rate(120.0);
 	let mut tick_timer = TickTiming::new(1.0/60.0);
 
 	let mut tick_count = 0_u32;
@@ -32,8 +35,10 @@ fn main() {
 				*control_flow = ControlFlow::Exit;
 			},
 			Event::WindowEvent { event: WindowEvent::Resized(size), .. } => {
-				println!("resized {:?}", size);
-				renderer.recreate_swapchain = true;
+				renderer.resize(size);
+			},
+			Event::WindowEvent { event: WindowEvent::ScaleFactorChanged {new_inner_size, ..}, ..} => {
+				renderer.resize(*new_inner_size);
 			},
 			Event::WindowEvent { event: WindowEvent::KeyboardInput {input, .. }, .. } => {
 				println!("{:?}", input);

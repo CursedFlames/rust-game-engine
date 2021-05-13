@@ -1,19 +1,29 @@
 [package]
-name = "vulkan-test"
+name = "rust-game-engine"
 version = "0.1.0"
 authors = ["CursedFlames <18627001+CursedFlames@users.noreply.github.com>"]
 edition = "2018"
 
+build = "build/build.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-shaders = { path = "shaders" }
-vulkano = "0.19.0"
 winit = "0.22.2"
-vulkano-win = "0.19.0"
-vulkano-shaders = "0.19.0"
 spin_sleep = "1.0.0"
 hecs = "0.2.14"
 cgmath = "0.17.0"
 regex = "1.4.2"
 image = "0.23.12"
+env_logger = "0.8.3"
+log = "0.4.14"
+wgpu = "0.8.1"
+futures = "0.3.14"
+bytemuck = { version = "1.5.1", features = ["derive"] }
+
+[build-dependencies]
+anyhow = "1.0"
+fs_extra = "1.1"
+glob = "0.3"
+shaderc = "0.7"
+rayon = "1.5"
