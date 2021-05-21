@@ -84,7 +84,7 @@ pub fn compile_shaders() -> Result<()> {
 
 	// TODO optimize this to only compile individual shaders that have changed?
 	for shader in shaders {
-		println!("cargo:rerun-if-changed={}", shader.src_path.as_os_str().to_str().unwrap());
+		cargo_emit::rerun_if_changed!(shader.src_path.as_os_str().to_str().unwrap());
 
 		let compiled = compiler.compile_into_spirv(
 			&shader.src,

@@ -44,8 +44,6 @@ pub struct Renderer {
 	swapchain_desc: SwapChainDescriptor,
 	swapchain: SwapChain,
 	size: PhysicalSize<u32>,
-	// TODO we probably don't need this anymore?
-	pub recreate_swapchain: bool,
 
 	shaders: Shaders,
 
@@ -316,7 +314,6 @@ impl Renderer {
 			swapchain_desc,
 			swapchain,
 			size,
-			recreate_swapchain: false,
 			pipeline_main,
 			bind_group_output,
 			pipeline_output,

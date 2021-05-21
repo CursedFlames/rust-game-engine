@@ -1,9 +1,17 @@
-mod shaders;
-
 use anyhow::*;
+use rayon::join;
+use tuple_transpose::TupleTranspose;
+
 use crate::shaders::compile_shaders;
+use crate::textures::pack_textures;
+
+mod shaders;
+mod textures;
 
 fn main() -> Result<()> {
-	compile_shaders()?;
+	join(
+		compile_shaders,
+		pack_textures
+	).transpose()?;
 	Ok(())
 }
