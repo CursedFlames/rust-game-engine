@@ -56,6 +56,7 @@ pub fn pack_textures() -> Result<()> {
 		.into_par_iter()
 		.map(|glob_result| {
 			let glob = glob_result?;
+			cargo_emit::rerun_if_changed!(glob.as_os_str().to_str().unwrap());
 			let image = ImageImporter::import_from_file(&glob).map_err(Error::msg)?;
 			Ok(ImageData {
 				image,

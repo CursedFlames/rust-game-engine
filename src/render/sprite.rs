@@ -19,7 +19,7 @@ pub struct SpriteMetadata {
 	pub original_size: [u32; 2],
 }
 
-struct TextureWrapper {
+pub struct TextureWrapper {
 	// TODO getters and `new` instead of pub
 	pub texture: Texture,
 	pub default_view: TextureView,
@@ -28,10 +28,11 @@ struct TextureWrapper {
 pub struct Spritesheet {
 	texture: TextureWrapper,
 	sprite_metadata: Slab<SpriteMetadata>,
+	size: [u32; 2],
 }
 
 impl Spritesheet {
-	pub fn create(texture: Texture, view: Option<TextureView>, metadata: HashMap<String, SpriteMetadata>)
+	pub fn create(texture: Texture, view: Option<TextureView>, metadata: HashMap<String, SpriteMetadata>, size: [u32; 2])
 			-> (Self, HashMap<String, usize>) {
 		let view = view.unwrap_or_else(|| texture.create_view(&TextureViewDescriptor::default()));
 		let texture = TextureWrapper {
@@ -50,21 +51,26 @@ impl Spritesheet {
 			Self {
 				texture,
 				sprite_metadata,
+				size,
 			},
 			indices
 		)
 	}
 
-	fn get_texture(&self) -> &TextureWrapper {
+	pub fn get_texture(&self) -> &TextureWrapper {
 		&self.texture
 	}
 
-	fn get_sprite_metadata(&self, position: usize) -> Option<&SpriteMetadata> {
+	pub fn get_sprite_metadata(&self, position: usize) -> Option<&SpriteMetadata> {
 		self.sprite_metadata.get(position)
+	}
+
+	pub fn size(&self) -> [u32; 2] {
+		self.size
 	}
 }
 
-
+#[derive(Copy, Clone, Debug)]
 pub struct SpriteRef {
 	pub spritesheet_index: usize,
 	pub sprite_index: usize,
@@ -101,6 +107,10 @@ impl Spritesheets {
 			spritesheets: slab,
 			sprite_map: Arc::new(sprite_map),
 		}
+	}
+
+	pub fn get_spritesheet(&self, index: usize) -> Option<&Spritesheet> {
+		self.spritesheets.get(index)
 	}
 
 	pub fn get_sprite_map(&self) -> Arc<SpriteMap> {

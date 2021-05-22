@@ -56,6 +56,7 @@ pub struct Renderer {
 	spritesheets: Spritesheets,
 
 	pipeline_main: RenderPipeline,
+	bind_group_main_texture1: BindGroup,
 	bind_group_output: BindGroup,
 	pipeline_output: RenderPipeline,
 
@@ -103,6 +104,7 @@ impl Renderer {
 
 	// TODO handle errors nicely instead of unwrapping
 	pub async fn new(events_loop: &EventLoop<()>) -> Self {
+		// TODO this entire method is a mess - clean it up
 		let window = WindowBuilder::new().with_title("aaaaa").build(&events_loop).unwrap();
 		let size = window.inner_size();
 
@@ -174,11 +176,102 @@ impl Renderer {
 			label: Some("Uniform bind group"),
 		});
 
+		let intermediate_texture = device.create_texture(
+			&TextureDescriptor {
+				label: Some("Intermediate texture"),
+				size: Extent3d {
+					width: PIXEL_RESOLUTION[0],
+					height: PIXEL_RESOLUTION[1],
+					depth_or_array_layers: 1,
+				},
+				mip_level_count: 1,
+				sample_count: 1,
+				dimension: TextureDimension::D2,
+				format: TextureFormat::Rgba16Float,
+				usage: TextureUsage::SAMPLED | TextureUsage::RENDER_ATTACHMENT,
+			}
+		);
+
+		let intermediate_texture_view = intermediate_texture.create_view(&TextureViewDescriptor::default());
+		let intermediate_texture_sampler = device.create_sampler(&SamplerDescriptor {
+			label: Some("Texture sampler"),
+			address_mode_u: AddressMode::ClampToEdge,
+			address_mode_v: AddressMode::ClampToEdge,
+			address_mode_w: AddressMode::ClampToEdge,
+			mag_filter: FilterMode::Nearest,
+			min_filter: FilterMode::Nearest,
+			mipmap_filter: FilterMode::Nearest,
+			..Default::default()
+		});
+
+		let bind_group_fragment_texture_layout = device.create_bind_group_layout(
+			&BindGroupLayoutDescriptor {
+				entries: &[
+					BindGroupLayoutEntry {
+						binding: 0,
+						visibility: wgpu::ShaderStage::FRAGMENT,
+						ty: BindingType::Texture {
+							multisampled: false,
+							view_dimension: wgpu::TextureViewDimension::D2,
+							sample_type: wgpu::TextureSampleType::Float { filterable: false },
+						},
+						count: None,
+					},
+					BindGroupLayoutEntry {
+						binding: 1,
+						visibility: wgpu::ShaderStage::FRAGMENT,
+						ty: BindingType::Sampler {
+							comparison: false,
+							filtering: false,
+						},
+						count: None,
+					},
+				],
+				label: Some("Texture bind group layout"),
+			}
+		);
+
+		// TODO name these things properly
+		let bind_group_main_texture1 = device.create_bind_group(
+			&BindGroupDescriptor {
+				layout: &bind_group_fragment_texture_layout,
+				entries: &[
+					BindGroupEntry {
+						binding: 0,
+						resource: wgpu::BindingResource::TextureView(&spritesheets.get_spritesheet(0).unwrap().get_texture().default_view),
+					},
+					BindGroupEntry {
+						binding: 1,
+						resource: wgpu::BindingResource::Sampler(&intermediate_texture_sampler),
+					}
+				],
+				label: Some("Texture bind group 1"),
+			}
+		);
+
+		let bind_group_output = device.create_bind_group(
+			&BindGroupDescriptor {
+				layout: &bind_group_fragment_texture_layout,
+				entries: &[
+					BindGroupEntry {
+						binding: 0,
+						resource: wgpu::BindingResource::TextureView(&intermediate_texture_view),
+					},
+					BindGroupEntry {
+						binding: 1,
+						resource: wgpu::BindingResource::Sampler(&intermediate_texture_sampler),
+					}
+				],
+				label: Some("Texture bind group"),
+			}
+		);
+
 		let pipeline_main_layout =
 			device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 				label: Some("Main render pipeline layout"),
 				bind_group_layouts: &[
 					&uniform_bind_group_layout,
+					&bind_group_fragment_texture_layout,
 				],
 				push_constant_ranges: &[],
 			});
@@ -219,82 +312,10 @@ impl Renderer {
 			},
 		});
 
-		let intermediate_texture = device.create_texture(
-			&TextureDescriptor {
-				label: Some("Intermediate texture"),
-				size: Extent3d {
-					width: PIXEL_RESOLUTION[0],
-					height: PIXEL_RESOLUTION[1],
-					depth_or_array_layers: 1,
-				},
-				mip_level_count: 1,
-				sample_count: 1,
-				dimension: TextureDimension::D2,
-				format: TextureFormat::Rgba16Float,
-				usage: TextureUsage::SAMPLED | TextureUsage::RENDER_ATTACHMENT,
-			}
-		);
-
-		let intermediate_texture_view = intermediate_texture.create_view(&TextureViewDescriptor::default());
-		let intermediate_texture_sampler = device.create_sampler(&SamplerDescriptor {
-			label: Some("Texture sampler"),
-			address_mode_u: AddressMode::ClampToEdge,
-			address_mode_v: AddressMode::ClampToEdge,
-			address_mode_w: AddressMode::ClampToEdge,
-			mag_filter: FilterMode::Nearest,
-			min_filter: FilterMode::Nearest,
-			mipmap_filter: FilterMode::Nearest,
-			..Default::default()
-		});
-
-		let bind_group_output_layout = device.create_bind_group_layout(
-			&BindGroupLayoutDescriptor {
-				entries: &[
-					BindGroupLayoutEntry {
-						binding: 0,
-						visibility: wgpu::ShaderStage::FRAGMENT,
-						ty: BindingType::Texture {
-							multisampled: false,
-							view_dimension: wgpu::TextureViewDimension::D2,
-							sample_type: wgpu::TextureSampleType::Float { filterable: false },
-						},
-						count: None,
-					},
-					BindGroupLayoutEntry {
-						binding: 1,
-						visibility: wgpu::ShaderStage::FRAGMENT,
-						ty: BindingType::Sampler {
-							comparison: false,
-							filtering: false,
-						},
-						count: None,
-					},
-				],
-				label: Some("Texture bind group layout"),
-			}
-		);
-
-		let bind_group_output = device.create_bind_group(
-			&BindGroupDescriptor {
-				layout: &bind_group_output_layout,
-				entries: &[
-					BindGroupEntry {
-						binding: 0,
-						resource: wgpu::BindingResource::TextureView(&intermediate_texture_view),
-					},
-					BindGroupEntry {
-						binding: 1,
-						resource: wgpu::BindingResource::Sampler(&intermediate_texture_sampler),
-					}
-				],
-				label: Some("Texture bind group"),
-			}
-		);
-
 		let pipeline_output_layout =
 			device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 				label: Some("Main render pipeline layout"),
-				bind_group_layouts: &[&bind_group_output_layout],
+				bind_group_layouts: &[&bind_group_fragment_texture_layout],
 				push_constant_ranges: &[],
 			});
 
@@ -341,6 +362,7 @@ impl Renderer {
 			swapchain,
 			size,
 			pipeline_main,
+			bind_group_main_texture1,
 			bind_group_output,
 			pipeline_output,
 			shaders,
@@ -376,7 +398,10 @@ impl Renderer {
 			label: Some("Command encoder")
 		});
 
-		let (vert, ind) = frame.get_sprite_renderer().get_buffers();
+		// TODO properly handle multiple spritesheets here
+		let spritesheet = self.spritesheets.get_spritesheet(0).unwrap();
+		// TODO don't unwrap
+		let (vert, ind) = frame.get_sprite_renderer().get_buffers(0, spritesheet).unwrap();
 		let vert_buf = self.device.create_buffer_init(
 			&util::BufferInitDescriptor {
 				label: Some("Vertex buffer"),
@@ -405,8 +430,8 @@ impl Renderer {
 						ops: Operations {
 							load: LoadOp::Clear(Color {
 								r: 0.0,
-								g: 1.0,
-								b: 0.0,
+								g: 0.0,
+								b: 1.0,
 								a: 0.0
 							}),
 							store: true
@@ -418,6 +443,7 @@ impl Renderer {
 			});
 			render_pass_main.set_pipeline(&self.pipeline_main);
 			render_pass_main.set_bind_group(0, &self.uniform_bind_group, &[]);
+			render_pass_main.set_bind_group(1, &self.bind_group_main_texture1, &[]);
 			render_pass_main.set_vertex_buffer(0, vert_buf.slice(..));
 			render_pass_main.set_index_buffer(ind_buf.slice(..), IndexFormat::Uint32);
 			render_pass_main.draw_indexed(0..num_indices, 0, 0..1);

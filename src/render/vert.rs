@@ -37,7 +37,7 @@ impl VertexSprite {
 			step_mode: wgpu::InputStepMode::Vertex,
 			attributes: &[
 				VertexAttribute { shader_location: 0, format: Float32x3, offset: 0 },
-				VertexAttribute { shader_location: 1, format: Float32x3, offset: std::mem::size_of::<[f32; 2]>() as BufferAddress },
+				VertexAttribute { shader_location: 1, format: Float32x2, offset: std::mem::size_of::<[f32; 3]>() as BufferAddress },
 			],
 		}
 	}

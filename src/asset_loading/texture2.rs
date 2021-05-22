@@ -126,7 +126,8 @@ pub fn load_spritesheet_from_file<P: Clone + Debug + AsRef<Path>> (
 	let metadata_string = read_to_string(metadata_path.clone())?;
 	let metadata = ron::from_str::<HashMap<String, SpriteMetadata>>(&metadata_string)?;
 	let texture_data = load_image_from_file(texture_path, expected_format, texture_format)?;
+	let size = [texture_data.dimensions.width, texture_data.dimensions.height];
 	// TODO only use label in debug builds?
 	let texture = create_texture(device, queue, texture_data, usage, Some(&*format!("spritesheet {:?}", metadata_path)));
-	Ok(Spritesheet::create(texture, None, metadata))
+	Ok(Spritesheet::create(texture, None, metadata, size))
 }

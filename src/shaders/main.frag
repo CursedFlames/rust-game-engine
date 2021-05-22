@@ -10,8 +10,12 @@ layout(location = 0) out vec4 f_color;
 
 //layout(binding = 0) uniform sampler2D texSampler;
 
+layout(set = 1, binding = 0) uniform texture2D t_1;
+layout(set = 1, binding = 1) uniform sampler s_1;
+
 void main() {
 //	 f_color = vec4(sin(pushConstants.time/4.0), 0.25, 1.0, 1.0);
 //	f_color = texture(texSampler, fragTexCoord);
-	f_color = vec4(0.8, 0.2, 0.6, 1.0);
+//	f_color = vec4(0.8, 0.2, 0.6, 1.0);
+	f_color = texture(sampler2D(t_1, s_1), fragTexCoord);
 }

@@ -1,5 +1,9 @@
-use crate::render::vert::VertexSprite;
+use log::*;
+
 use crate::game::Pos;
+use crate::render::animation::AnimationFrame;
+use crate::render::sprite::Spritesheet;
+use crate::render::vert::VertexSprite;
 
 pub type DisplayElementComponent = Box<dyn DisplayElement + Send + Sync>;
 
@@ -7,13 +11,14 @@ pub trait DisplayElement {
 	fn draw(&self, renderer: &mut SpriteRenderer, pos: &Pos) -> ();
 }
 
-pub struct DisplayElementSquare {
-
+// TODO: animated sprites
+pub struct DisplayElementFixedSprite {
+	pub sprite: AnimationFrame,
 }
 
-impl DisplayElement for DisplayElementSquare {
+impl DisplayElement for DisplayElementFixedSprite {
 	fn draw(&self, renderer: &mut SpriteRenderer, pos: &Pos) {
-		renderer.draw_test_square(pos.x, pos.y);
+		renderer.draw_sprite(self.sprite.offset([pos.x, pos.y]));
 	}
 }
 
@@ -24,9 +29,11 @@ pub struct FrameBuilder {
 }
 
 impl FrameBuilder {
-	pub fn new(time: f32) -> Self {
+	// TODO do we want tick count + partial ticks as well?
+	//      is time (roughly) equivalent to tick count + partial ticks? idk
+	pub fn new(time: f32, spritesheet_count: usize) -> Self {
 		Self {
-			sprite_renderer: SpriteRenderer::new(),
+			sprite_renderer: SpriteRenderer::new(spritesheet_count),
 			time
 		}
 	}
@@ -36,43 +43,64 @@ impl FrameBuilder {
 	pub fn get_sprite_renderer(&mut self) -> &mut SpriteRenderer { &mut self.sprite_renderer }
 }
 
-// SpriteCollector or smth might be a better name? It's instantiated every frame...
+// TODO SpriteCollector or smth might be a better name? It's instantiated every frame...
 pub struct SpriteRenderer {
-	vertices: Vec<VertexSprite>,
-	indices: Vec<u32>,
+	sprites: Vec<Vec<AnimationFrame>>,
 }
 
 impl SpriteRenderer {
-	pub fn new() -> Self {
+	pub fn new(spritesheet_count: usize) -> Self {
 		Self {
-			vertices: Vec::new(),
-			indices: Vec::new(),
+			sprites: vec![Vec::new(); spritesheet_count],
 		}
 	}
 
-	/// Draw a 40x40 square. For testing until actual rendering stuff is implemented.
-	pub fn draw_test_square(&mut self, x: i32, y: i32) {
-		let x = x as f32;
-		let y = y as f32;
-		let offset = self.vertices.len() as u32;
-		self.vertices.extend(vec![
-			VertexSprite {position: [x, y, 0.0], uv: [0.0, 1.0]},
-			VertexSprite {position: [x+40.0, y, 0.0], uv: [1.0, 1.0]},
-			VertexSprite {position: [x, y+40.0, 0.0], uv: [0.0, 0.0]},
-			VertexSprite {position: [x+40.0, y+40.0, 0.0], uv: [1.0, 0.0]},
-		].into_iter());
-		// 0 1 2 2 1 3
-		self.indices.extend([
-			offset,
-			offset+1,
-			offset+2,
-			offset+2,
-			offset+1,
-			offset+3,
-		].iter());
+	pub fn draw_sprite(&mut self, sprite: AnimationFrame) {
+		self.sprites[sprite.sprite.spritesheet_index].push(sprite);
 	}
 
-	pub fn get_buffers(&self) -> (&Vec<VertexSprite>, &Vec<u32>) {
-		(&self.vertices, &self.indices)
+	pub fn get_buffers(&self, index: usize, spritesheet: &Spritesheet) -> Option<(Vec<VertexSprite>, Vec<u32>)> {
+		let sprites = &self.sprites[index];
+		if sprites.is_empty() {
+			return None;
+		}
+		let mut vertices: Vec<VertexSprite> = Vec::with_capacity(sprites.len() * 4);
+		let mut indices: Vec<u32> = Vec::with_capacity(sprites.len() * 6);
+		for sprite in sprites.iter() {
+			let size = spritesheet.size();
+			let size = [size[0] as f32, size[1] as f32];
+			if let Some(metadata) = spritesheet.get_sprite_metadata(sprite.sprite.sprite_index) {
+				// TODO we could do this coordinate scaling on load, instead of for every sprite, every frame...
+				let u1 = (metadata.frame[0] as f32)/size[0];
+				let v1 = (metadata.frame[1] as f32)/size[1];
+				let u2 = ((metadata.frame[0]+metadata.frame[2]) as f32)/size[0];
+				let v2 = ((metadata.frame[1]+metadata.frame[3]) as f32)/size[1];
+				let x1 = (sprite.offset[0] + metadata.original_position[0] as i32) as f32;
+				let y1 = (sprite.offset[1] + metadata.original_position[1] as i32) as f32;
+				// TODO what if we want to scale sprites? should AnimationFrame have a scale on it too?
+				let x2 = x1 + metadata.frame[2] as f32;
+				let y2 = y1 + metadata.frame[3] as f32;
+				let offset = vertices.len() as u32;
+				vertices.extend(vec![
+					VertexSprite {position: [x1, y1, 0.0], uv: [u1, v2]},
+					VertexSprite {position: [x2, y1, 0.0], uv: [u2, v2]},
+					VertexSprite {position: [x1, y2, 0.0], uv: [u1, v1]},
+					VertexSprite {position: [x2, y2, 0.0], uv: [u2, v1]},
+				].into_iter());
+				// 0 1 2 2 1 3
+				indices.extend([
+					offset,
+					offset+1,
+					offset+2,
+					offset+2,
+					offset+1,
+					offset+3,
+				].iter());
+			} else {
+				// TODO proper error handling?
+				warn!("Failed to get sprite metadata for sprite {:?}", sprite.sprite);
+			}
+		}
+		Some((vertices, indices))
 	}
 }

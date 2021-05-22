@@ -3,13 +3,14 @@ use log::*;
 use winit::event::VirtualKeyCode;
 
 use crate::game::physics;
-use crate::game::physics::{DebugPhysicsActor, PhysicsActorComponent};
+use crate::game::physics::PhysicsActorComponent;
 use crate::render::camera::Camera;
-use crate::render::display::{DisplayElementComponent, DisplayElementSquare, FrameBuilder};
+use crate::render::display::{DisplayElementComponent, FrameBuilder, DisplayElementFixedSprite};
 use crate::render::renderer2::Renderer;
 use crate::util::input::InputMap;
 use std::sync::Arc;
 use crate::render::sprite::SpriteMap;
+use crate::render::animation::AnimationFrame;
 
 pub struct Pos {
 	pub x: i32,
@@ -38,7 +39,12 @@ impl Game {
 				.map(|i|
 					(
 						Pos {x: i*20, y: (i*70)%170},
-						DisplayElementComponent::from(Box::new(DisplayElementSquare{})),
+						DisplayElementComponent::from(Box::new(DisplayElementFixedSprite{
+							sprite: AnimationFrame {
+								sprite: *sprite_map.get("test").unwrap(),
+								offset: [0, 0]
+							},
+						})),
 						Vel { vx: 1, vy: 1},
 					)
 				));
@@ -50,10 +56,10 @@ impl Game {
 		// 				DisplayElementComponent(Box::new(DisplayElementSquare{})),
 		// 			)
 		// 		));
-		level.spawn((
-				DisplayElementComponent::from(Box::new(DisplayElementSquare{})),
-				PhysicsActorComponent::from(Box::new(DebugPhysicsActor{x:0,y:0})),
-			));
+		// level.spawn((
+		// 		DisplayElementComponent::from(Box::new(DisplayElementSquare{})),
+		// 		PhysicsActorComponent::from(Box::new(DebugPhysicsActor{x:0,y:0})),
+		// 	));
 		Game {
 			level,
 			camera,
@@ -106,7 +112,8 @@ impl Game {
 	}
 
 	pub fn draw_frame(&self, renderer: &mut Renderer, _tick_count: u32, _partial_ticks: f32, time: f32) {
-		let mut frame = FrameBuilder::new(time);
+		// TODO don't hardcode spritesheet count to 1
+		let mut frame = FrameBuilder::new(time, 1);
 		let sprite_renderer = frame.get_sprite_renderer();
 		let mut query = self.level.query::<(&Pos, &DisplayElementComponent)>();
 		for (_id, (pos, display)) in query.iter() {
