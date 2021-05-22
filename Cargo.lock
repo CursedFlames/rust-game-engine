@@ -1747,6 +1747,7 @@ dependencies = [
  "ron",
  "serde",
  "shaderc",
+ "slab",
  "spin_sleep",
  "texture_packer",
  "tuple-transpose",

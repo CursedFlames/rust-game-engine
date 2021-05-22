@@ -22,6 +22,8 @@ wgpu = "0.8.1"
 futures = "0.3.14"
 ron = "0.6"
 bytemuck = { version = "1.5.1", features = ["derive", "extern_crate_alloc"] }
+slab = "0.4"
+serde = "1.0"
 
 [build-dependencies]
 anyhow = "1.0"

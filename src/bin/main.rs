@@ -12,7 +12,7 @@ fn main() {
 	let events_loop = EventLoop::new();
 	// let mut renderer = Renderer::init(&events_loop);
 	let mut renderer = block_on(Renderer::new(&events_loop));
-	let mut game = Game::new();
+	let mut game = Game::new(renderer.get_sprite_map());
 
 	// TODO why does CPU usage get maxed when using FIFO present mode and target rate is above monitor FPS?
 	let mut timer = LoopHelper::builder()

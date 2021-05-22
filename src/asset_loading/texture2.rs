@@ -1,12 +1,16 @@
-use std::fs::File;
+use std::collections::HashMap;
+use std::fmt::Debug;
+use std::fs::{File, read_to_string};
 use std::io::Read;
+use std::num::NonZeroU32;
 use std::path::Path;
 
 use anyhow::*;
 use image::{ColorType, GenericImageView, ImageFormat};
 use log::*;
 use wgpu::*;
-use std::num::NonZeroU32;
+
+use crate::render::sprite::{SpriteMetadata, Spritesheet};
 
 pub struct TextureData {
 	pub bytes: Vec<u8>,
@@ -42,7 +46,7 @@ pub fn load_image_from_file<P: AsRef<Path>>(path: P, expected_format: Option<Ima
 
 pub fn load_image_data(raw_bytes: &[u8], expected_format: Option<ImageFormat>, texture_format: TextureFormat) -> Result<TextureData> {
 	use ColorType::*;
-	let mut image = if let Some(expected_format) = expected_format {
+	let image = if let Some(expected_format) = expected_format {
 		image::load_from_memory_with_format(raw_bytes, expected_format)
 	} else {
 		image::load_from_memory(raw_bytes)
@@ -85,7 +89,7 @@ pub fn load_image_data(raw_bytes: &[u8], expected_format: Option<ImageFormat>, t
 	})
 }
 
-pub fn create_texture(device: Device, queue: Queue, data: TextureData, usage: TextureUsage, label: Option<&str>) -> Texture {
+pub fn create_texture(device: &Device, queue: &Queue, data: TextureData, usage: TextureUsage, label: Option<&str>) -> Texture {
 	let texture = device.create_texture(&TextureDescriptor {
 		label,
 
@@ -112,4 +116,17 @@ pub fn create_texture(device: Device, queue: Queue, data: TextureData, usage: Te
 		data.dimensions
 	);
 	texture
+}
+
+// TODO remove usage param?
+pub fn load_spritesheet_from_file<P: Clone + Debug + AsRef<Path>> (
+		texture_path: P, metadata_path: P, expected_format: Option<ImageFormat>, texture_format: TextureFormat,
+		device: &Device, queue: &Queue, usage: TextureUsage)
+			-> Result<(Spritesheet, HashMap<String, usize>)> {
+	let metadata_string = read_to_string(metadata_path.clone())?;
+	let metadata = ron::from_str::<HashMap<String, SpriteMetadata>>(&metadata_string)?;
+	let texture_data = load_image_from_file(texture_path, expected_format, texture_format)?;
+	// TODO only use label in debug builds?
+	let texture = create_texture(device, queue, texture_data, usage, Some(&*format!("spritesheet {:?}", metadata_path)));
+	Ok(Spritesheet::create(texture, None, metadata))
 }

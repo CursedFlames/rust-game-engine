@@ -1,13 +1,20 @@
+use std::path::PathBuf;
+
+use anyhow::*;
 use bytemuck::{Pod, Zeroable};
+use image::ImageFormat;
 use wgpu::*;
 use wgpu::util::DeviceExt;
 use winit::dpi::PhysicalSize;
 use winit::event_loop::EventLoop;
 use winit::window::{Window, WindowBuilder};
 
+use crate::asset_loading::texture2::load_spritesheet_from_file;
 use crate::render::camera::{Camera, PIXEL_RESOLUTION};
 use crate::render::display::FrameBuilder;
 use crate::render::vert::VertexSprite;
+use crate::render::sprite::{Spritesheets, SpriteMap};
+use std::sync::Arc;
 
 struct Shaders {
 	pub main_vs: ShaderModule,
@@ -46,6 +53,7 @@ pub struct Renderer {
 	size: PhysicalSize<u32>,
 
 	shaders: Shaders,
+	spritesheets: Spritesheets,
 
 	pipeline_main: RenderPipeline,
 	bind_group_output: BindGroup,
@@ -78,6 +86,22 @@ impl Renderer {
 		}
 	}
 
+	fn load_spritesheets(device: &Device, queue: &Queue) -> Result<Spritesheets> {
+		let spritesheet_main = PathBuf::from(concat!(env!("OUT_DIR"), "/textures/spritesheet"));
+		let spritesheet_main = load_spritesheet_from_file(
+			spritesheet_main.with_extension("png"),
+			spritesheet_main.with_extension("ron"),
+			Some(ImageFormat::Png),
+			TextureFormat::Rgba8UnormSrgb,
+			device,
+			queue,
+			TextureUsage::SAMPLED | TextureUsage::COPY_DST)?;
+		let mut spritesheets = Vec::new();
+		spritesheets.push(spritesheet_main);
+		Ok(Spritesheets::init(spritesheets))
+	}
+
+	// TODO handle errors nicely instead of unwrapping
 	pub async fn new(events_loop: &EventLoop<()>) -> Self {
 		let window = WindowBuilder::new().with_title("aaaaa").build(&events_loop).unwrap();
 		let size = window.inner_size();
@@ -110,6 +134,8 @@ impl Renderer {
 		let swapchain = device.create_swap_chain(&surface, &swapchain_desc);
 
 		let shaders = Renderer::load_shaders(&device);
+
+		let spritesheets = Renderer::load_spritesheets(&device, &queue).unwrap();
 
 		let uniforms = Uniforms::new();
 
@@ -318,12 +344,17 @@ impl Renderer {
 			bind_group_output,
 			pipeline_output,
 			shaders,
+			spritesheets,
 			intermediate_texture,
 			intermediate_texture_view,
 			uniforms,
 			uniform_buffer,
 			uniform_bind_group,
 		}
+	}
+
+	pub fn get_sprite_map(&self) -> Arc<SpriteMap> {
+		self.spritesheets.get_sprite_map()
 	}
 
 	pub fn resize(&mut self, new_size: PhysicalSize<u32>) {

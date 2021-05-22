@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs::{create_dir_all, File};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::*;
 use glob::glob;
@@ -9,7 +9,7 @@ use rayon::prelude::*;
 use serde::Serialize;
 use texture_packer::{Frame, TexturePacker, TexturePackerConfig};
 use texture_packer::exporter::ImageExporter;
-use texture_packer::importer::{ImageImporter, ImportResult};
+use texture_packer::importer::ImageImporter;
 use std::io::Write;
 
 struct ImageData<Image> {
@@ -52,7 +52,7 @@ pub fn pack_textures() -> Result<()> {
 	sprite_paths.extend(glob("./assets/textures/sprites/**/*.png")?);
 	let prefix = "assets/textures/sprites/";
 
-	let mut sprites: Vec<ImageData<_>> = sprite_paths
+	let sprites: Vec<ImageData<_>> = sprite_paths
 		.into_par_iter()
 		.map(|glob_result| {
 			let glob = glob_result?;
@@ -80,11 +80,11 @@ pub fn pack_textures() -> Result<()> {
 	});
 
 	for sprite in sprites.into_iter() {
-		texture_packer.pack_own(sprite.name, sprite.image);
+		texture_packer.pack_own(sprite.name, sprite.image).map_err(|e| Error::msg(format!("{:?}", e)))?;
 	}
 
 	let spritesheet = ImageExporter::export(&texture_packer).map_err(Error::msg)?;
-	create_dir_all(&out_dir_path);
+	create_dir_all(&out_dir_path)?;
 	// cargo_emit::warning!("{:?}", out_dir_path.join("spritesheet.png"));
 	let mut file = File::create(out_dir_path.join("spritesheet.png")).map_err(Error::msg)?;
 	spritesheet.write_to(&mut file, image::ImageFormat::Png).map_err(Error::msg)?;
@@ -92,9 +92,10 @@ pub fn pack_textures() -> Result<()> {
 
 	let frames = texture_packer.get_frames();
 	let frames: HashMap<_, _> = frames.into_iter().map(|a| (a.0, SpriteMetadata::from(a.1))).collect();
+	// TODO attach other metadata as well as sprite positions (texture format, maybe?)
 	let frames_data = ron::to_string(&frames)?;
 	let mut file = File::create(out_dir_path.join("spritesheet.ron")).map_err(Error::msg)?;
-	file.write_all(frames_data.as_bytes());
+	file.write_all(frames_data.as_bytes())?;
 	// loading will be like this:
 	// let frames2 = ron::from_str::<HashMap<String, SpriteMetadata>(&string)?;
 

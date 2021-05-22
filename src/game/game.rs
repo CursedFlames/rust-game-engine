@@ -8,6 +8,8 @@ use crate::render::camera::Camera;
 use crate::render::display::{DisplayElementComponent, DisplayElementSquare, FrameBuilder};
 use crate::render::renderer2::Renderer;
 use crate::util::input::InputMap;
+use std::sync::Arc;
+use crate::render::sprite::SpriteMap;
 
 pub struct Pos {
 	pub x: i32,
@@ -23,10 +25,11 @@ pub struct Game {
 	level: World,
 	pub camera: Camera, // TODO make this one non-public once we're doing inputs in a non-jank way
 	pub input: InputMap, // TODO probably same for this and add methods on Game to pass through inputs?
+	pub sprite_map: Arc<SpriteMap>,
 }
 
 impl Game {
-	pub fn new() -> Self {
+	pub fn new(sprite_map: Arc<SpriteMap>) -> Self {
 		let camera = Camera::new();
 		let input = InputMap::new();
 		let mut level = World::new();
@@ -55,6 +58,7 @@ impl Game {
 			level,
 			camera,
 			input,
+			sprite_map,
 		}
 	}
 
