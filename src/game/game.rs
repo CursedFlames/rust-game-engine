@@ -12,6 +12,7 @@ use std::sync::Arc;
 use crate::render::sprite::SpriteMap;
 use crate::render::animation::AnimationFrame;
 
+#[derive(Debug)]
 pub struct Pos {
 	pub x: i32,
 	pub y: i32,
@@ -34,20 +35,33 @@ impl Game {
 		let camera = Camera::new();
 		let input = InputMap::new();
 		let mut level = World::new();
-		level.spawn_batch(
-			(0..10)
-				.map(|i|
-					(
-						Pos {x: i*20, y: (i*70)%170},
-						DisplayElementComponent::from(Box::new(DisplayElementFixedSprite{
-							sprite: AnimationFrame {
-								sprite: *sprite_map.get("test").unwrap(),
-								offset: [0, 0]
-							},
-						})),
-						Vel { vx: 1, vy: 1},
-					)
-				));
+		// level.spawn_batch(
+		// 	(0..10)
+		// 		.map(|i|
+		// 			(
+		// 				Pos {x: i*20, y: (i*70)%140},
+		// 				DisplayElementComponent::from(Box::new(DisplayElementFixedSprite{
+		// 					sprite: AnimationFrame {
+		// 						sprite: *sprite_map.get("test").unwrap(),
+		// 						offset: [0, 0]
+		// 					},
+		// 				})),
+		// 				Vel { vx: 1, vy: 1},
+		// 			)
+		// 		));
+
+		level.spawn(
+			(
+				Pos {x: 10, y: 10},
+				DisplayElementComponent::from(Box::new(DisplayElementFixedSprite{
+					sprite: AnimationFrame {
+						sprite: *sprite_map.get("test").unwrap(),
+						offset: [0, 0]
+					},
+				})),
+				Vel { vx: 2, vy: 0},
+			)
+		);
 		// level.spawn_batch(
 		// 	(0..4)
 		// 		.map(|i|
@@ -100,10 +114,10 @@ impl Game {
 			if pos.y < 0 && vel.vy < 0 {
 				vel.vy *= -1;
 			}
-			if pos.x > 312 && vel.vx > 0 {
+			if pos.x > 320-40 && vel.vx > 0 {
 				vel.vx *= -1;
 			}
-			if pos.y > 172 && vel.vy > 0 {
+			if pos.y > 180-40 && vel.vy > 0 {
 				vel.vy *= -1;
 			}
 		}

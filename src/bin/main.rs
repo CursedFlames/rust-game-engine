@@ -2,10 +2,11 @@ use spin_sleep::LoopHelper;
 use winit::event::{Event, WindowEvent, ElementState};
 use winit::event_loop::{ControlFlow, EventLoop};
 
-use rust_game_engine::util::timing::TickTiming;
+use rust_game_engine::util::timing::{TickTiming, SpicyTiming};
 use rust_game_engine::game::Game;
 use rust_game_engine::render::renderer2::Renderer;
 use futures::executor::block_on;
+use std::time::Duration;
 
 fn main() {
 	env_logger::init();
@@ -15,13 +16,17 @@ fn main() {
 	let mut game = Game::new(renderer.get_sprite_map());
 
 	// TODO why does CPU usage get maxed when using FIFO present mode and target rate is above monitor FPS?
-	let mut timer = LoopHelper::builder()
-		.report_interval_s(0.5)
-		.build_with_target_rate(120.0);
-	let mut tick_timer = TickTiming::new(1.0/60.0);
+	// let mut timer = LoopHelper::builder()
+	// 	.report_interval_s(0.5)
+	// 	.build_with_target_rate(120.0);
+	// let mut tick_timer = TickTiming::new(1.0/60.0);
+	//
+	// tick_timer.add_delta(Duration::from_secs_f64(0.5/60.0));
+	//
+	// let mut tick_count = 0_u32;
+	// let mut time = 0.0;
 
-	let mut tick_count = 0_u32;
-	let mut time = 0.0;
+	let mut timer = SpicyTiming::new();
 
 	events_loop.run(move |event, _, control_flow| {
 		// Not used since it means framerate is kept low unless events are occurring
@@ -58,23 +63,30 @@ fn main() {
 			},
 			Event::RedrawEventsCleared => {},
 			Event::MainEventsCleared => {
-				let delta = timer.loop_start();
-				tick_timer.add_delta(delta);
-
-				time += delta.as_secs_f64();
-
-				if let Some(fps) = timer.report_rate() {
-					println!("FPS: {}", fps);
-				}
-
-				while tick_timer.try_consume_tick() {
-					game.tick(tick_count);
-					tick_count += 1;
-				}
-
-				game.draw_frame(&mut renderer, tick_count, tick_timer.get_partial_ticks() as f32, time as f32);
-				timer.loop_sleep();
+				// let delta = timer.loop_start();
+				// tick_timer.add_delta(delta);
+				//
+				// time += delta.as_secs_f64();
+				//
+				// if let Some(fps) = timer.report_rate() {
+				// 	println!("FPS: {}", fps);
+				// }
+				//
+				// while tick_timer.try_consume_tick() {
+				// 	game.tick(tick_count);
+				// 	tick_count += 1;
+				// }
+				//
+				// renderer.window.request_redraw();
+				//
+				// timer.loop_sleep();
+				// TODO do we still want to do the draw call in RedrawRequested?
+				//      might be better to re-add it there but not request the redraw, for cases like window resizing
+				timer.update(&mut game, &mut renderer);
 			},
+			Event::RedrawRequested(_) => {
+				// game.draw_frame(&mut renderer, tick_count, tick_timer.get_partial_ticks() as f32, time as f32);
+			}
 			_ => ()
 		}
 	});
